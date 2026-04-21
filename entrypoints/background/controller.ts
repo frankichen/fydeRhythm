@@ -265,6 +265,7 @@ export class InputController extends EventEmitter {
                 this.notifyRimeStatusChanged();
             });
             await this.refreshContext();
+            this.emit("schemaSwitched", this.activeSettings.schema);
             return true;
         } catch (ex) {
             console.error("Error while loading RIME engine: ", ex);
