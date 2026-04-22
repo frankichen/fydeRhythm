@@ -109,6 +109,9 @@
     "remove_schema": {
         "message": "삭제"
     },
+    "enable_schema_hint": {
+        "message": "IME 트레이 메뉴에 이 스키마 표시"
+    },
     "cannot_edit_this_file": {
         "message": "텍스트 파일을 선택하세요"
     },

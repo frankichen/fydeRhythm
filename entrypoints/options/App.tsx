@@ -15,6 +15,8 @@ import TextField from "@mui/material/TextField";
 import FormGroup from "@mui/material/FormGroup";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Checkbox from "@mui/material/Checkbox";
+import Switch from "@mui/material/Switch";
+import Tooltip from "@mui/material/Tooltip";
 import Snackbar from "@mui/material/Snackbar";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
@@ -217,6 +219,32 @@ function OptionsPage() {
         }
     }
 
+    // Legacy (undefined) = all downloaded schemas are enabled.
+    // Active schema is always implicitly enabled regardless of the list.
+    function isSchemaEnabled(id: string): boolean {
+        if (id === imeSettings.schema) return true;
+        if (!imeSettings.enabledSchemas) return true;
+        return imeSettings.enabledSchemas.includes(id);
+    }
+
+    function toggleSchemaEnabled(id: string, enabled: boolean) {
+        // Materialize the list from current local schemas on first toggle-off.
+        const base = imeSettings.enabledSchemas ?? localSchemaList.slice();
+        const next = enabled
+            ? _.uniq([...base, id])
+            : base.filter(x => x !== id);
+        changeSettings({ enabledSchemas: next });
+    }
+
+    // Called at the end of each install path (download / convert / import).
+    // Auto-enables the new schema only if the user has already opted into explicit enable lists.
+    function setActiveSchemaOnInstall(id: string) {
+        const nextEnabled = imeSettings.enabledSchemas
+            ? _.uniq([...imeSettings.enabledSchemas, id])
+            : undefined;
+        changeSettings({ schema: id, ...(nextEnabled ? { enabledSchemas: nextEnabled } : {}) });
+    }
+
     let engineStatusString: string = $$("rime_engine_not_started");
     let engineColor = "error.main";
     if (engineStatus.loading) {
@@ -265,16 +293,26 @@ function OptionsPage() {
                 chrome.storage.local.set({ "selfDefinedSchema": result });
             }
 
+            const strippedEnabled = imeSettings.enabledSchemas?.filter(x => x !== id);
+            const enabledChange = (strippedEnabled && strippedEnabled.length !== imeSettings.enabledSchemas!.length)
+                ? { enabledSchemas: strippedEnabled }
+                : {};
+
             // If the removed schema is currently selected, switch to another schema
             if (imeSettings.schema === id) {
                 const updatedList = await loadLocalSchemaList();
                 if (updatedList.length > 0) {
                     // Switch to the first available schema
-                    changeSettings({ schema: updatedList[0] });
+                    changeSettings({ schema: updatedList[0], ...enabledChange });
+                } else if (Object.keys(enabledChange).length > 0) {
+                    changeSettings(enabledChange);
                 }
             } else {
                 // Just reload the lists
                 await loadLocalSchemaList();
+                if (Object.keys(enabledChange).length > 0) {
+                    changeSettings(enabledChange);
+                }
             }
 
             await loadSchemaList();
@@ -471,7 +509,7 @@ function OptionsPage() {
             // Schema should be the last file to be written, in case an error is encountered while downloading
             await fs.writeWholeFile(`${schemaBasePath}/${schemaFile}`, new TextEncoder().encode(schemaYaml));
             await addSelfDefinedSchema(id, schema.schema.name, schema.schema.description, data['repo'], postData.schema_id);
-            changeSettings({ schema: id });
+            setActiveSchemaOnInstall(id);
         } catch (ex) {
             console.log(ex);
             setFetchListError($$("error_downloading_schema") + 'repo conf error');
@@ -617,7 +655,7 @@ function OptionsPage() {
             }
             // Schema should be the last file to be written, in case an error is encountered while downloading
             await fs.writeWholeFile(`${schemaBasePath}/${schemaFile}`, new TextEncoder().encode(schemaYaml));
-            changeSettings({ schema: id });
+            setActiveSchemaOnInstall(id);
         } catch (ex) {
             console.log(ex);
             setFetchListError($$("error_downloading_schema") + ex.toString());
@@ -769,7 +807,7 @@ return {}
             await loadLocalSchemaList();
 
             // Set as active schema
-            changeSettings({ schema: schemaId });
+            setActiveSchemaOnInstall(schemaId);
 
             setDownloadProgress(100);
 
@@ -835,22 +873,29 @@ return {}
                         >
                             <List>
                                 {schemaList.schemas.map((schema) =>
-                                    <ListItem key={schema.id} disablePadding>
+                                    <ListItem 
+                                        key={schema.id} 
+                                        alignItems="flex-start"
+                                        style={{ paddingTop: '8px', paddingBottom: '8px' }}
+                                    >
                                         <ListItemIcon>
                                             {downloadSchemaId == schema.id ? <CircularProgress variant="determinate" value={downloadProgress} /> :
-                                                localSchemaList.includes(schema.id) ? <Radio value={schema.id} /> :
+                                                localSchemaList.includes(schema.id) ?
+                                                    <Radio value={schema.id} /> :
                                                     <IconButton onClick={() =>downloadSchema(schema.id)} disabled={downloadSchemaId != null}>
                                                         <CloudDownloadIcon />
                                                     </IconButton>}
                                         </ListItemIcon>
                                         <ListItemText
-                                            primary={<>{schema.user ? schema.realName : schema.id } { schema.name }
+                                            disableTypography
+                                            primary={<div style={{ fontSize: '1rem', fontWeight: localSchemaList.includes(schema.id) ? 500 : 400 }}>
+                                                {schema.user ? schema.realName : schema.id } { schema.name }
                                                 {localSchemaList.includes(schema.id) && (!schema.user || schema.website) &&
                                                     <Link component="button" underline="hover"
                                                         onClick={() =>  {
                                                             schema.user  ? convertPersonalSchema(schema.website, schema.realName, true, schema.id) : downloadSchema(schema.id, true)
                                                         }}
-                                                        style={{ marginLeft: "8px" }}
+                                                        style={{ marginLeft: "8px", fontSize: "0.85rem" }}
                                                         disabled={downloadSchemaId != null}>
                                                         {$$("update_schema")}
                                                     </Link>
@@ -858,20 +903,40 @@ return {}
                                                 {localSchemaList.includes(schema.id) &&
                                                     <Link component="button" underline="hover"
                                                         onClick={() => removeSchema(schema.id)}
-                                                        style={{ marginLeft: "8px" }}
+                                                        style={{ marginLeft: "8px", fontSize: "0.85rem" }}
                                                         disabled={downloadSchemaId != null}>
                                                         {$$("remove_schema")}
                                                     </Link>
                                                 }
-                                            </>}
-                                            secondary={<>
-                                                {schema.description}
-                                                {schema.website &&
-                                                    <Link href={schema.website} target="_blank" underline="hover">
-                                                        {$$("schema_home_page")}
-                                                    </Link>
-                                                }
-                                            </>}
+                                            </div>}
+                                            secondary={<Stack direction="column" spacing={0.5} sx={{ mt: 0.5 }}>
+                                                <Box sx={{ fontSize: '0.875rem', color: 'text.secondary' }}>
+                                                    {schema.description}
+                                                    {schema.website &&
+                                                        <Link href={schema.website} target="_blank" underline="hover" style={{ marginLeft: "8px" }}>
+                                                            {$$("schema_home_page")}
+                                                        </Link>
+                                                    }
+                                                </Box>
+                                                {localSchemaList.includes(schema.id) && (
+                                                    <FormControlLabel
+                                                        control={
+                                                            <Switch
+                                                                size="small"
+                                                                checked={isSchemaEnabled(schema.id)}
+                                                                disabled={schema.id === imeSettings.schema}
+                                                                onChange={(_, checked) => toggleSchemaEnabled(schema.id, checked)}
+                                                                color="primary"
+                                                            />
+                                                        }
+                                                        label={
+                                                            <span style={{ fontSize: '0.85rem', color: 'var(--mui-palette-text-secondary, gray)' }}>
+                                                                {$$("enable_schema_hint")}
+                                                            </span>
+                                                        }
+                                                    />
+                                                )}
+                                            </Stack>}
                                         />
                                     </ListItem>)}
                                 <ListItem key="1000" disablePadding>

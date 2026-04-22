@@ -109,6 +109,9 @@
     "remove_schema": {
         "message": "移除"
     },
+    "enable_schema_hint": {
+        "message": "在输入法托盘菜单中显示此方案"
+    },
     "cannot_edit_this_file": {
         "message": "请选择一个文本文件"
     },

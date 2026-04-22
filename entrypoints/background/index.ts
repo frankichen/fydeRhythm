@@ -3,65 +3,29 @@ import { getFs, kDefaultSettings, type ImeSettings } from "@/lib/utils";
 import { InputController } from "./controller";
 import { serviceWorkerKeepalive } from "./keepalive";
 import { onMessage } from "@/lib/messaging";
+import { listEnabledInstalledSchemas } from "./schemas";
 
-interface SchemaMetadata {
-  id: string;
-  name?: string;
-}
-
-async function buildSchemaMenuItems(activeSchema: string): Promise<chrome.input.ime.MenuItem[]> {
-  const fs = await getFs();
-  const entries = await fs.readAll();
-  const schemaDirRegex = /^\/root\/([^/]+)$/;
-  const installed = new Set<string>(
-    entries
-      .filter((e: any) => e.isDirectory && schemaDirRegex.test(e.fullPath))
-      .map((e: any) => e.fullPath.match(schemaDirRegex)[1])
-  );
-
-  const stored = await chrome.storage.local.get(["schemaList"]) as { schemaList?: { schemas?: SchemaMetadata[] } };
-  const catalog: SchemaMetadata[] = stored.schemaList?.schemas ?? [];
-  const byId = new Map<string, SchemaMetadata>();
-  for (const s of catalog) byId.set(s.id, s);
-
-  const items: chrome.input.ime.MenuItem[] = [];
-  for (const s of catalog) {
-    if (installed.has(s.id)) {
-      items.push({
-        id: s.id,
-        label: s.name || s.id,
-        style: "radio",
-        visible: true,
-        checked: s.id === activeSchema,
-        enabled: true,
-      });
-    }
-  }
-  // Synthesize entries for directories not in the cached catalog (e.g. ZIP import)
-  for (const id of installed) {
-    if (!byId.has(id)) {
-      items.push({
-        id,
-        label: id,
-        style: "radio",
-        visible: true,
-        checked: id === activeSchema,
-        enabled: true,
-      });
-    }
-  }
-  return items;
+async function buildSchemaMenuItems(activeSchema: string, enabledSchemas?: string[]): Promise<chrome.input.ime.MenuItem[]> {
+  const list = await listEnabledInstalledSchemas(activeSchema, enabledSchemas);
+  return list.map((entry) => ({
+    id: entry.id,
+    label: entry.label,
+    style: "radio",
+    visible: true,
+    checked: entry.id === activeSchema,
+    enabled: true,
+  }));
 }
 
 async function refreshImeMenuItems() {
   const engineID = self.controller?.engineId;
   if (!engineID) return;
-  let activeSchema = self.controller?.activeSettings?.schema;
-  if (!activeSchema) {
+  let active = self.controller?.activeSettings;
+  if (!active?.schema) {
     const obj = await chrome.storage.sync.get(["settings"]) as { settings?: ImeSettings };
-    activeSchema = obj.settings?.schema ?? "";
+    active = obj.settings;
   }
-  const items = await buildSchemaMenuItems(activeSchema);
+  const items = await buildSchemaMenuItems(active?.schema ?? "", active?.enabledSchemas);
   try {
     chrome.input.ime.setMenuItems({ engineID, items });
   } catch (ex) {

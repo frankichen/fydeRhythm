@@ -45,6 +45,9 @@ export interface ImeSettings {
     pageSize: number;
     algebraList: string[];
     horizontal?: boolean;
+    // Ids of schemas visible in the IME tray menu. Undefined = legacy "all downloaded are enabled".
+    // The currently active schema is always implicitly enabled regardless of this list.
+    enabledSchemas?: string[];
 }
 
 export const kDefaultSettings: ImeSettings = { schema: "aurora_pinyin", pageSize: 5, algebraList: [], horizontal: false };

@@ -1,10 +1,11 @@
 import { Mutex } from "async-mutex";
-import { getFs, type ImeSettings } from "@/lib/utils";
+import { getFs, kDefaultSettings, type ImeSettings } from "@/lib/utils";
 import { RimeCandidateIterator, RimeEngine, RimeSession } from "./engine";
 import { parse, stringify } from 'yaml'
 import type { RimeCandidate } from "@/lib/shared-types";
 import EventEmitter from "events";
 import { ConstructionOutlined } from "@mui/icons-material";
+import { listEnabledInstalledSchemas } from "./schemas";
 
 const kShiftMask = 1 << 0;
 const kControlMask = 1 << 2;
@@ -497,8 +498,38 @@ export class InputController extends EventEmitter {
         }
     }
 
+    async cycleToNextSchema(): Promise<void> {
+        const obj = await chrome.storage.sync.get(["settings"]) as { settings?: ImeSettings };
+        const settings = obj.settings ?? kDefaultSettings;
+        const list = await listEnabledInstalledSchemas(settings.schema, settings.enabledSchemas);
+        if (list.length < 2) return;
+        let idx = list.findIndex((e) => e.id === settings.schema);
+        if (idx < 0) idx = 0;
+        const next = list[(idx + 1) % list.length].id;
+        if (next === settings.schema) return;
+        const updated: ImeSettings = { ...settings, schema: next };
+        await chrome.storage.sync.set({ settings: updated });
+        await this.loadRime(true);
+    }
+
     feedKey(keyData: chrome.input.ime.KeyboardEvent): Promise<boolean> | boolean {
         const release = keyData.type == 'keyup';
+        // Ctrl+` cycles to the next enabled schema. Swallow both keydown and keyup so the
+        // composed keystroke is never partially leaked to the focused page.
+        if (keyData.ctrlKey
+            && !keyData.altKey
+            && !keyData.shiftKey
+            && keyData.code === 'Backquote') {
+            if (release) return true;
+            return (async () => {
+                try {
+                    await this.cycleToNextSchema();
+                } catch (ex) {
+                    this.printErr('cycleToNextSchema: ' + ex);
+                }
+                return true;
+            })();
+        }
         if (this.session) {
             let mask = 0;
             if (keyData.altKey)
