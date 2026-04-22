@@ -74,9 +74,6 @@ importers:
       '@types/chrome':
         specifier: ^0.1.40
         version: 0.1.40
-      '@types/jszip':
-        specifier: ^3.4.1
-        version: 3.4.1
       '@types/lodash':
         specifier: ^4.17.24
         version: 4.17.24
@@ -90,7 +87,7 @@ importers:
         specifier: ^19.2.3
         version: 19.2.3(@types/react@19.2.14)
       '@wxt-dev/module-react':
-        specifier: 1.2.1
+        specifier: ^1.2.1
         version: 1.2.1(vite@7.3.2(@types/node@24.12.2)(jiti@2.6.1)(less@4.6.4)(lightningcss@1.32.0)(yaml@2.8.3))(wxt@0.20.18(@types/node@24.12.2)(jiti@2.6.1)(less@4.6.4)(lightningcss@1.32.0)(rollup@4.60.2)(yaml@2.8.3))
       less:
         specifier: ^4.6.4
@@ -105,7 +102,7 @@ importers:
         specifier: ^7.3.2
         version: 7.3.2(@types/node@24.12.2)(jiti@2.6.1)(less@4.6.4)(lightningcss@1.32.0)(yaml@2.8.3)
       wxt:
-        specifier: 0.20.18
+        specifier: ^0.20.18
         version: 0.20.18(@types/node@24.12.2)(jiti@2.6.1)(less@4.6.4)(lightningcss@1.32.0)(rollup@4.60.2)(yaml@2.8.3)
 
 packages:
@@ -779,10 +776,6 @@ packages:
 
   '@types/har-format@1.2.16':
     resolution: {integrity: sha512-fluxdy7ryD3MV6h8pTfTYpy/xQzCFC7m89nOH9y94cNqJ1mDIDPut7MnRHI3F6qRmh/cT2fUjG1MLdCNb4hE9A==}
-
-  '@types/jszip@3.4.1':
-    resolution: {integrity: sha512-TezXjmf3lj+zQ651r6hPqvSScqBLvyPI9FxdXBqpEwBijNGQ2NXpaFW/7joGzveYkKQUil7iiDHLo6LV71Pc0A==}
-    deprecated: This is a stub types definition. jszip provides its own type definitions, so you do not need this installed.
 
   '@types/lodash@4.17.24':
     resolution: {integrity: sha512-gIW7lQLZbue7lRSWEFql49QJJWThrTFFeIMJdp3eH4tKoxm1OvEPg02rm4wCCSHS0cL3/Fizimb35b7k8atwsQ==}
@@ -3129,10 +3122,6 @@ snapshots:
   '@types/filewriter@0.0.33': {}
 
   '@types/har-format@1.2.16': {}
-
-  '@types/jszip@3.4.1':
-    dependencies:
-      jszip: 3.10.1
 
   '@types/lodash@4.17.24': {}
 
