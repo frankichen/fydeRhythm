@@ -67,6 +67,9 @@
     "error_removing_schema": {
         "message": "スキーマの削除中にエラー："
     },
+    "error_last_schema": {
+        "message": "最後のスキーマは削除できません。少なくとも 1 つのスキーマを残す必要があります。"
+    },
     "error_importing_schema": {
         "message": "スキーマのインポート中にエラー"
     },

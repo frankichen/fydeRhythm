@@ -67,6 +67,9 @@
     "error_removing_schema": {
         "message": "스키마 제거 중 오류 발생: "
     },
+    "error_last_schema": {
+        "message": "마지막 스키마는 제거할 수 없습니다. 최소한 하나의 스키마는 유지되어야 합니다."
+    },
     "error_importing_schema": {
         "message": "스키마 가져오기 중 오류 발생"
     },

@@ -67,6 +67,9 @@
     "error_removing_schema": {
         "message": "刪除方案時出錯："
     },
+    "error_last_schema": {
+        "message": "無法刪除最後一個方案，必須至少保留一個方案。"
+    },
     "error_importing_schema": {
         "message": "匯入方案時出錯"
     },

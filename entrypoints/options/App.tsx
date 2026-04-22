@@ -244,6 +244,11 @@ function OptionsPage() {
 
     async function removeSchema(id: string) {
         try {
+            if (localSchemaList.length < 2) {
+                setFetchListError($$("error_last_schema"));
+                return;
+            }
+
             // Delete the schema directory and all its contents
             const fs = await getFs();
             const schemaPath = `/root/${id}`;

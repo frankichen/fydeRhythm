@@ -67,6 +67,9 @@
      "error_removing_schema": {
         "message": "Error while removing schema: "
      },
+     "error_last_schema": {
+        "message": "Cannot remove the last schema. At least one schema must remain installed."
+     },
      "error_importing_schema": {
         "message": "Error while importing schema"
      },
