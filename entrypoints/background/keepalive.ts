@@ -1,9 +1,9 @@
 const INTERNAL_STAYALIVE_PORT = "sfv23i9t4gju8v23vtgn23gv3y"
-var alivePort = null;
-var wakeup = null;
+let alivePort: chrome.runtime.Port | null = null;
+let wakeup: ReturnType<typeof setInterval> | null = null;
 
 export function serviceWorkerKeepalive() {
-    var lastCall = Date.now();
+    const lastCall = Date.now();
     if (!wakeup) {
         wakeup = setInterval(() => {
 
@@ -14,7 +14,7 @@ export function serviceWorkerKeepalive() {
             if (alivePort == null) {
                 alivePort = chrome.runtime.connect({ name: INTERNAL_STAYALIVE_PORT })
 
-                alivePort.onDisconnect.addListener((p) => {
+                alivePort.onDisconnect.addListener((_p) => {
                     if (chrome.runtime.lastError) {
                         console.log(`(DEBUG StayAlive) Disconnected due to an error: ${chrome.runtime.lastError.message}`);
                     } else {

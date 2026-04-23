@@ -1,4 +1,4 @@
-import { openDB, IDBPDatabase } from "idb";
+import { openDB, type IDBPDatabase } from "idb";
 import _ from 'lodash';
 import { generateId, getParentPath, getFileName, formatBytes } from './utils';
 
@@ -13,7 +13,7 @@ export interface Entry {
     mtime: number;
     mode: number;
     blobs: Array<BlobInfo>;
-    parent: string;
+    parent: string | null;
     fullPath: string;
 }
 
@@ -22,7 +22,7 @@ interface FullEntry extends Entry {
 }
 
 function typedArrayToBuffer(array: Uint8Array): ArrayBuffer {
-    return array.buffer.slice(array.byteOffset, array.byteLength + array.byteOffset)
+    return array.buffer.slice(array.byteOffset, array.byteLength + array.byteOffset) as ArrayBuffer;
 }
 
 interface OpenedFile {
@@ -53,14 +53,14 @@ const kTimeWarning = 50;
 
 export class FastIndexedDbFsController {
     dbName: string;
-    openedFiles: Map<String, OpenedFile>;
+    openedFiles: Map<string, OpenedFile>;
 
-    constructor(name) {
+    constructor(name: string) {
         this.dbName = name;
         this.openedFiles = new Map();
     }
 
-    db: IDBPDatabase
+    db!: IDBPDatabase;
     async open() {
         this.db = await openDB(this.dbName, 1, {
             upgrade(db) {
@@ -72,20 +72,20 @@ export class FastIndexedDbFsController {
         });
     }
 
-    async readEntryRaw(path: string): Promise<Entry> {
+    async readEntryRaw(path: string): Promise<Entry | undefined> {
         return await this.db.get("entries", path);
     }
 
-    async readEntry(path: string): Promise<Entry> {
-        if (this.openedFiles.has(path)) {
-            return this.openedFiles.get(path).entry;
-        } else {
-            return await this.readEntryRaw(path);
+    async readEntry(path: string): Promise<Entry | undefined> {
+        const opened = this.openedFiles.get(path);
+        if (opened) {
+            return opened.entry;
         }
+        return await this.readEntryRaw(path);
     }
 
     async getFileSize(path: string): Promise<number> {
-        const details: Entry = await this.readEntry(path);
+        const details = await this.readEntry(path);
         if (details) {
             return details.blobs.map(b => b.size).reduce((partialSum, a) => partialSum + a, 0);
         } else {
@@ -95,22 +95,21 @@ export class FastIndexedDbFsController {
 
     async createBlob(rawData: ArrayBuffer): Promise<BlobInfo> {
         const id = generateId(16);
-        let data = rawData;
-        await this.db.put("blobs", data, id);
-        return { id: id, size: rawData.byteLength, compressed: false };
+        await this.db.put("blobs", rawData, id);
+        return { id, size: rawData.byteLength, compressed: false };
     }
 
     async readBlob(ident: BlobInfo): Promise<ArrayBuffer> {
-        let buf = await this.db.get("blobs", ident.id) as ArrayBuffer;
+        const buf = await this.db.get("blobs", ident.id) as ArrayBuffer;
         return buf;
     }
 
     async writeEntry(entry: Entry): Promise<void> {
         entry.parent = getParentPath(entry.fullPath);
-        if (this.openedFiles.has(entry.fullPath)) {
-            const o = this.openedFiles.get(entry.fullPath);
-            o.entry = entry;
-            o.dirty = false;
+        const opened = this.openedFiles.get(entry.fullPath);
+        if (opened) {
+            opened.entry = entry;
+            opened.dirty = false;
         }
         await this.db.put("entries", entry);
     }
@@ -147,10 +146,10 @@ export class FastIndexedDbFsController {
             throw new Error("Path " + path + " is a directory, cannot set its size.");
         }
         const curBlobs = curEntry.blobs;
-        let newBlobs = [];
+        const newBlobs = [];
         let seek = 0;
         for (let i = 0; i < curBlobs.length; i++) {
-            let curBlob = curBlobs[i];
+            const curBlob = curBlobs[i];
             if (size >= seek + curBlob.size) {
                 // not arrived yet
                 newBlobs.push(curBlob);
@@ -167,7 +166,7 @@ export class FastIndexedDbFsController {
         }
 
         if (seek < size) {
-            let stubData = new ArrayBuffer(size - seek);
+            const stubData = new ArrayBuffer(size - seek);
             const stubBlob = await this.createBlob(stubData);
             newBlobs.push(stubBlob);
         }
@@ -178,10 +177,10 @@ export class FastIndexedDbFsController {
     }
 
     async openFile(path: string, readonly: boolean): Promise<void> {
-        if (this.openedFiles.has(path)) {
+        const existing = this.openedFiles.get(path);
+        if (existing) {
             // already opened
-            const inst = this.openedFiles.get(path);
-            inst.readonly = readonly;
+            existing.readonly = readonly;
         } else {
             let entry = await this.readEntryRaw(path);
             let created = false;
@@ -220,10 +219,10 @@ export class FastIndexedDbFsController {
         }
         const curFile = handle.entry;
         const curBlobs = curFile.blobs;
-        let newBlobs = [];
+        const newBlobs = [];
         let seek = 0;
         for (let i = 0; i < curBlobs.length; i++) {
-            let curBlob = curBlobs[i];
+            const curBlob = curBlobs[i];
             if (pos >= seek + curBlob.size) {
                 // not arrived yet
                 newBlobs.push(curBlob);
@@ -245,7 +244,7 @@ export class FastIndexedDbFsController {
         seek = 0;
         const end = pos + data.length;
         for (let i = 0; i < curBlobs.length; i++) {
-            let curBlob = curBlobs[i];
+            const curBlob = curBlobs[i];
             if (end <= seek) {
                 newBlobs.push(curBlob);
             } else if (end > seek && end <= seek + curBlob.size) {
@@ -273,12 +272,14 @@ export class FastIndexedDbFsController {
             throw Error(`File ${path} is not opened for reading, cannot read from it`);
         }
         const curBlobs = handle.entry.blobs;
+        const totalCacheSize = () =>
+            _.sumBy(Array.from(handle.cachedBlobs.values()), c => c.byteLength);
         let seek = 0;
         let read = 0;
         for (let i = 0; i < curBlobs.length; i++) {
-            let curBlob = curBlobs[i];
+            const curBlob = curBlobs[i];
 
-            let start = pos - seek + read;
+            const start = pos - seek + read;
             let end = pos + data.length - seek;
 
             if (end > curBlob.size)
@@ -292,15 +293,14 @@ export class FastIndexedDbFsController {
 
                     // If blob is smaller than cache size limit, and read more than 3 times, then cache it
                     if (blobData.byteLength <= kCacheBlobSizeLimit) {
-                        let readCount = handle.accessedBlobs.get(curBlob.id) || 1;
+                        const readCount = handle.accessedBlobs.get(curBlob.id) || 1;
                         if (readCount >= kCacheFrequency) {
                             // If total cache size would be bigger than limit, remove one randomly
-                            function totalCacheSize() {
-                                const allCaches = Array.from(handle.cachedBlobs.values());
-                                return _.sumBy(allCaches, c => c.byteLength);
-                            }
                             while (totalCacheSize() + blobData.byteLength > kCacheTotalSizeLimit) {
                                 const b = _.sample(Array.from(handle.cachedBlobs.keys()));
+                                if (b === undefined) {
+                                    break;
+                                }
                                 handle.cachedBlobs.delete(b);
                                 handle.accessedBlobs.delete(b);
                             }
@@ -338,7 +338,7 @@ export class FastIndexedDbFsController {
         const totalSize = _.sumBy(file.blobs, b => b.size);
         const buf = new Uint8Array(totalSize);
         let pos = 0;
-        for (let b of file.blobs) {
+        for (const b of file.blobs) {
             const blobData = new Uint8Array(await this.readBlob(b));
             buf.set(blobData, pos);
             pos += blobData.length;
@@ -378,7 +378,10 @@ export class FastIndexedDbFsController {
 
 
     async closeFile(path: string): Promise<void> {
-        let f = this.openedFiles.get(path);
+        const f = this.openedFiles.get(path);
+        if (!f) {
+            return;
+        }
         if (f.dirty) {
             await this.writeEntry(f.entry);
         }
@@ -392,7 +395,7 @@ export class FastIndexedDbFsController {
         if (this.openedFiles.has(newPath)) {
             throw new Error(`${newPath} already opened, cannot move`);
         }
-        let curEntry = await this.readEntry(oldPath);
+        const curEntry = await this.readEntry(oldPath);
         if (curEntry == null) {
             throw new Error("Path " + oldPath + " does not exist, cannot move.");
         }
@@ -414,7 +417,7 @@ export class FastIndexedDbFsController {
         // Create this directory if it doesn't exist
         const exists = await this.readEntryRaw(path);
         if (!exists) {
-            let newEntry: Entry = {
+            const newEntry: Entry = {
                 isDirectory: true,
                 mode: 0o777,
                 mtime: 0,
@@ -432,7 +435,7 @@ export class FastIndexedDbFsController {
 
     async readDirectory(path: string): Promise<FullEntry[]> {
         const r: Array<Entry> = await this.db.getAllFromIndex("entries", "parent", path);
-        return r.map(x => ({ ...x, name: getFileName(x.fullPath) }));
+        return r.map(x => ({ ...x, name: getFileName(x.fullPath) ?? x.fullPath }));
     }
 
     async readAll(): Promise<Entry[]> {
@@ -452,7 +455,7 @@ export class FastIndexedDbFsController {
         console.log(`There're totally ${allBlobs.size} blobs, of which ${usedBlobs.size} are used.`);
         const tx = this.db.transaction("blobs", "readwrite");
         const blobStore = tx.objectStore("blobs");
-        for (let b of allBlobs.values()) {
+        for (const b of allBlobs.values()) {
             if (!usedBlobs.has(b)) {
                 console.log(`Removing unused blob ${b}`);
                 blobStore.delete(b);

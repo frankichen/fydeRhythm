@@ -14,6 +14,8 @@
     "build:firefox": "wxt build -b firefox",
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "compile": "tsc --noEmit",
     "postinstall": "wxt prepare"
   },
@@ -39,15 +41,21 @@
     "yaml": "^2.8.3"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.1",
     "@types/chrome": "^0.1.40",
     "@types/lodash": "^4.17.24",
     "@types/node": "^24.12.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@wxt-dev/module-react": "^1.2.1",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
     "less": "^4.6.4",
     "prettier": "^3.8.3",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.2",
     "vite": "^7.3.2",
     "wxt": "^0.20.18"
   },

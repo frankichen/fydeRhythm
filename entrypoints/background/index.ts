@@ -74,7 +74,7 @@ export default defineBackground({
         if (result === false || result === true) {
           return result;
         } else {
-          result.then((handled) => chrome.input.ime.keyEventHandled(requestId, handled));
+          result.then((handled: boolean) => chrome.input.ime.keyEventHandled(requestId, handled));
           return undefined;
         }
       });
@@ -120,7 +120,7 @@ export default defineBackground({
     });
 
     // IME activation listener
-    chrome.input.ime.onActivate.addListener(async (engineId, screen) => {
+    chrome.input.ime.onActivate.addListener(async (engineId, _screen) => {
       self.controller.engineId = engineId;
       serviceWorkerKeepalive();
       refreshImeMenuItems();
@@ -139,11 +139,11 @@ export default defineBackground({
     onMessage('GetEngineStatus', async () => {
       const loaded = self.controller.engine != null;
       const loading = self.controller.engineLoading;
-      let schemaList = [];
+      const schemaList: never[] = [];
       let currentSchema = "";
 
       if (loaded && !loading) {
-        currentSchema = await self.controller.session?.getCurrentSchema();
+        currentSchema = (await self.controller.session?.getCurrentSchema()) ?? "";
       }
 
       return { loading, loaded, schemaList, currentSchema };
@@ -189,12 +189,12 @@ export default defineBackground({
           }
         });
 
-        const onToggleLanguageState = function(asciiMode: boolean) {
+        const onToggleLanguageState = function (asciiMode: boolean) {
           port.postMessage({ name: 'front_toggle_language_state', msg: !asciiMode });
         }
 
-        const onCandidatesBack = function(candidates: Array<{ candidate: string, ix: number }>) {
-          port.postMessage({ name: "candidates_back", msg: { source: "source", candidates }});
+        const onCandidatesBack = function (candidates: Array<{ candidate: string, ix: number }>) {
+          port.postMessage({ name: "candidates_back", msg: { source: "source", candidates } });
         }
 
         self.controller.addListener("toggleLanguageState", onToggleLanguageState);

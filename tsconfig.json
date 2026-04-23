@@ -2,7 +2,10 @@
   "extends": "./.wxt/tsconfig.json",
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM"],
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "resolveJsonModule": true,
@@ -12,16 +15,29 @@
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
     "allowImportingTsExtensions": true,
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"],
-      "~/*": ["./*"]
-    }
+      "@/*": [
+        "./*"
+      ],
+      "~/*": [
+        "./*"
+      ]
+    },
+    "types": [
+      "chrome",
+      "lodash",
+      "node",
+      "react",
+      "react-dom"
+    ]
   },
   "include": [
     "entrypoints/**/*",
     "lib/**/*",
     "wxt-env.d.ts"
   ],
-  "exclude": ["node_modules", ".output"]
+  "exclude": [
+    "node_modules",
+    ".output"
+  ]
 }

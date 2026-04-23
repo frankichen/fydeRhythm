@@ -20,7 +20,7 @@ class IMEOptions {
   
     private postAndUpdateFuzzy = async (body: string = "", method: string = "GET") => {
       const res = await fetch(IMEOptions.rime_url + "/algebra", { method, body });
-      let text = await res.text();
+      const text = await res.text();
       console.log("fuzzy text", text)
       return text.split("\n");
     }

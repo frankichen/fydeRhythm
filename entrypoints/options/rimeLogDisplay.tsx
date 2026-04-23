@@ -1,15 +1,14 @@
-import FormControl from "@mui/material/FormControl";
 import { sendMessage } from "@/lib/messaging";
 import { useEffect, useRef, useState } from "react";
-import * as styles from "./styles.module.less";
 
 function RimeLogDisplay() {
     const [rimeLogs, setRimeLogs] = useState<string[]>([]);
-    const logTextArea = useRef<HTMLTextAreaElement>();
+    const logTextArea = useRef<HTMLTextAreaElement | null>(null);
 
     useEffect(() => {
         // Scroll textarea to bottom on log update
         const area = logTextArea.current;
+        if (!area) return;
         area.scrollTop = area.scrollHeight;
     }, [rimeLogs]);
 
@@ -21,16 +20,16 @@ function RimeLogDisplay() {
     useEffect(() => {
         updateRimeLogs();
 
-        const listener = (m) => {
+        const listener = (m: { rimeLog?: string }) => {
             if (m.rimeLog) {
-                setRimeLogs(rimeLogs => [...rimeLogs, m.rimeLog]);
+                setRimeLogs(rimeLogs => [...rimeLogs, m.rimeLog!]);
             }
-        }
-        chrome.runtime.onMessage.addListener(listener)
+        };
+        chrome.runtime.onMessage.addListener(listener);
 
         return () => {
             chrome.runtime.onMessage.removeListener(listener);
-        }
+        };
     }, []);
 
     return <textarea readOnly value={rimeLogs.join("\n")} rows={14} ref={logTextArea}></textarea>;

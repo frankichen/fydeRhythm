@@ -1,11 +1,11 @@
-import React, { useEffect, useState, useRef } from "react";
-import _, { set } from "lodash";
-import { parse, stringify } from 'yaml'
+import React, { useEffect, useState } from "react";
+import _ from "lodash";
+import { parse } from 'yaml'
 import JSZip from 'jszip';
 import { ThemeProvider } from '@mui/material/styles';
 
 import theme from "./theme"
-import * as styles from "./styles.module.less";
+import styles from "./styles.module.less";
 import "./global.css";
 
 import IconButton from "@mui/material/IconButton";
@@ -16,7 +16,6 @@ import FormGroup from "@mui/material/FormGroup";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import Checkbox from "@mui/material/Checkbox";
 import Switch from "@mui/material/Switch";
-import Tooltip from "@mui/material/Tooltip";
 import Snackbar from "@mui/material/Snackbar";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
@@ -32,7 +31,6 @@ import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
 import CloudDownloadIcon from '@mui/icons-material/CloudDownload';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
-import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 
 import Animation from "./utils/animation";
 import FileEditorButton from "./fileEditor";
@@ -40,8 +38,6 @@ import RimeLogDisplay from "./rimeLogDisplay";
 import { $$, getFs, type ImeSettings, kDefaultSettings } from "@/lib/utils";
 import { sendMessage } from "@/lib/messaging";
 import Link from "@mui/material/Link";
-import { CompressTwoTone, Settings, Visibility } from "@mui/icons-material";
-import { Input } from "@mui/material";
 
 const kFuzzyMap = [
     {
@@ -75,14 +71,30 @@ interface SchemaDescription {
     name: string;
     description: string;
     website: string;
-    user: boolean | undefined;
-    realName: string | undefined;
-    extra_data: boolean | undefined;
-    fuzzy_pinyin: boolean | undefined;
+    user?: boolean;
+    realName?: string;
+    extra_data?: boolean;
+    fuzzy_pinyin?: boolean;
 }
 
 interface SchemaListFile {
     schemas: SchemaDescription[];
+}
+
+interface ConverterResponse {
+    status: string;
+    message?: string;
+    schema_id: string;
+    repo: string;
+}
+
+type OpenCcDict =
+    | { type: 'ocd2' | 'text'; file: string }
+    | { type: 'group'; dicts: OpenCcDict[] };
+
+interface OpenCcConfig {
+    segmentation?: { dict?: OpenCcDict };
+    conversion_chain?: Array<{ dict?: OpenCcDict }>;
 }
 
 const kRepoUrl = "https://fydeos-update.oss-cn-beijing.aliyuncs.com/fyderhythm";
@@ -101,16 +113,16 @@ function OptionsPage() {
 
     const [schemaList, setSchemaList] = useState<SchemaListFile>({ schemas: [] });
     const [fetchingList, setFetchingList] = useState<boolean>(false);
-    const [fetchListError, setFetchListError] = useState<string>(null);
+    const [fetchListError, setFetchListError] = useState<string | null>(null);
 
     const [localSchemaList, setLocalSchemaList] = useState<string[]>([]);
 
     const kTotalProgress = 100;
     const [downloadProgress, setDownloadProgress] = useState(0);
-    const [downloadSchemaId, setDownloadSchemaId] = useState(null);
+    const [downloadSchemaId, setDownloadSchemaId] = useState<string | null>(null);
 
-    const [personalRepoURL, setPersonalRepoURL] = useState<string>(null);
-    const [personalRepoSchemaId, setPersonalRepoSchemaId] = useState<string>(null);
+    const [personalRepoURL, setPersonalRepoURL] = useState<string | null>(null);
+    const [personalRepoSchemaId, setPersonalRepoSchemaId] = useState<string | null>(null);
 
     const fydeosUserDefinedSchema = "fydeosUserDefinedSchema";
 
@@ -122,7 +134,7 @@ function OptionsPage() {
     }
 
     async function loadSettings() {
-        const obj = await chrome.storage.sync.get(["settings"]);
+        const obj = await chrome.storage.sync.get(["settings"]) as { settings?: ImeSettings };
         if (obj.settings) {
             setImeSettings(obj.settings);
             setSettingsDirty(SettingsDirtyStatus.NotDirty);
@@ -136,15 +148,16 @@ function OptionsPage() {
         const schemaDirRegex = /^\/root\/([^/]+)$/;
         const list = content
             .filter(c => c.isDirectory && schemaDirRegex.test(c.fullPath))
-            .map(c => c.fullPath.match(schemaDirRegex)[1]);
+            .map(c => schemaDirRegex.exec(c.fullPath)?.[1])
+            .filter((schemaId): schemaId is string => schemaId != null);
         setLocalSchemaList(list);
         console.log("Local schema list:", list);
         return list;
     }
 
     async function loadSchemaList() {
-        const l = await chrome.storage.local.get(["schemaList"]);
-        console.log("loadSchemaList:", l.schemaList);
+        const { schemaList: storedSchemaList } = await chrome.storage.local.get(["schemaList"]) as { schemaList?: SchemaListFile };
+        console.log("loadSchemaList:", storedSchemaList);
         setFetchingList(true);
         let newData: SchemaListFile;
         try {
@@ -153,9 +166,9 @@ function OptionsPage() {
                 mode: "cors",
                 cache: "no-cache",
             }).then(x => x.text());
-            newData = parse(text);
+            newData = parse(text) as SchemaListFile;
         } catch (error) {
-            setFetchListError($$("error_fetch_schema_list") + error.toString());
+            setFetchListError($$("error_fetch_schema_list") + String(error));
             return;
         } finally {
             setFetchingList(false);
@@ -175,16 +188,16 @@ function OptionsPage() {
         loadSchemaList();
         loadLocalSchemaList();
 
-        const listener = (m, s, resp) => {
+        const listener = (m: { rimeStatusChanged?: boolean }) => {
             if (m.rimeStatusChanged) {
                 updateRimeStatus();
             }
-        }
-        chrome.runtime.onMessage.addListener(listener)
+        };
+        chrome.runtime.onMessage.addListener(listener);
 
         const settingsChangeListener = (changes: { [key: string]: chrome.storage.StorageChange }) => {
             if (changes.settings) {
-                setImeSettings(changes.settings.newValue);
+                setImeSettings(changes.settings.newValue as ImeSettings);
             }
         };
         chrome.storage.sync.onChanged.addListener(settingsChangeListener);
@@ -192,7 +205,8 @@ function OptionsPage() {
         return () => {
             chrome.runtime.onMessage.removeListener(listener);
             chrome.storage.sync.onChanged.removeListener(settingsChangeListener);
-        }
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     async function loadRime() {
@@ -257,17 +271,16 @@ function OptionsPage() {
 
     const kMinPageSize = 3, kMaxPageSize = 9;
     function currentSchemaInfo(): SchemaDescription | null {
-        return schemaList.schemas.filter(x => x.id == imeSettings.schema)[0] || null;
+        return schemaList.schemas.find((x) => x.id == imeSettings.schema) ?? null;
     }
 
     async function addSelfDefinedSchema(id: string, name: string, description: string, website: string, realName: string) {
         const selfDefinedSchema = await getSelfDefinedSchemaList();
-        const user = true;
-        const item = {id, name, description, website, realName, user};
-        let result = selfDefinedSchema.filter( el => (el.id != id) );
+        const item: SchemaDescription = { id, name, description, website, realName, user: true };
+        const result = selfDefinedSchema.filter(el => el.id != id);
         result.push(item);
-        chrome.storage.local.set({ "selfDefinedSchema": result });
-        loadSchemaList();
+        await chrome.storage.local.set({ "selfDefinedSchema": result });
+        await loadSchemaList();
     }
 
     async function removeSchema(id: string) {
@@ -293,8 +306,8 @@ function OptionsPage() {
             const selfDefinedSchema = await getSelfDefinedSchemaList();
             const wasSelfDefined = selfDefinedSchema.some(el => el.id === id);
             if (wasSelfDefined) {
-                let result = selfDefinedSchema.filter(el => (el.id != id));
-                chrome.storage.local.set({ "selfDefinedSchema": result });
+                const result = selfDefinedSchema.filter(el => (el.id != id));
+                await chrome.storage.local.set({ "selfDefinedSchema": result });
             }
 
             const strippedEnabled = imeSettings.enabledSchemas?.filter(x => x !== id);
@@ -309,22 +322,18 @@ function OptionsPage() {
             await loadSchemaList();
         } catch (ex) {
             console.error("Error removing schema:", ex);
-            setFetchListError($$("error_removing_schema") + ex.toString());
+            setFetchListError($$("error_removing_schema") + String(ex));
         }
     }
 
-    async function getSelfDefinedSchemaList() {
-        const l = await chrome.storage.local.get(["selfDefinedSchema"]);
+    async function getSelfDefinedSchemaList(): Promise<SchemaDescription[]> {
+        const l = await chrome.storage.local.get(["selfDefinedSchema"]) as { selfDefinedSchema?: SchemaDescription[] };
         console.log("selfDefinedSchema", l.selfDefinedSchema);
-        if (l.selfDefinedSchema) {
-            return l.selfDefinedSchema;
-        } else {
-            return [];
-        } 
+        return l.selfDefinedSchema ?? [];
     }
 
     async function convertPersonalSchema(repo: string='', schema_id: string='', force: boolean=false, convert_schema_id: string='') {
-        setFetchListError('');
+        setFetchListError(null);
         try {
             if (convert_schema_id) {
                 setDownloadSchemaId(convert_schema_id);
@@ -335,18 +344,11 @@ function OptionsPage() {
             setDownloadProgress(5);
 
             const fetchInit: RequestInit = { cache: "no-cache" };
-            
-            let postData = {repo, schema_id, force};
 
-            if (postData.repo == '') {
-                postData.repo = personalRepoURL;
-            }
+            const finalRepo = repo || personalRepoURL;
+            const finalSchemaId = schema_id || personalRepoSchemaId;
 
-            if (postData.schema_id == '') {
-                postData.schema_id = personalRepoSchemaId;
-            }
-
-            if (!(postData.repo && postData.schema_id)) {
+            if (!finalRepo || !finalSchemaId) {
                 setFetchListError($$("error_form"));
                 return;
             }
@@ -356,8 +358,8 @@ function OptionsPage() {
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(postData),
-            }).then(x => x.json())
+                body: JSON.stringify({ repo: finalRepo, schema_id: finalSchemaId, force }),
+            }).then(x => x.json()) as ConverterResponse;
 
             if (data['status'] != 'complete') {
                 setFetchListError($$("error_downloading_schema") + data['message']);
@@ -389,13 +391,13 @@ function OptionsPage() {
                         const configPath = `shared/opencc/${opencc?.opencc_config ?? "t2s.json"}`;
                         dependencies.add(configPath);
                         const opencc_config = await fetch(`${kRepoUrl}/${configPath}`, fetchInit).then(x => x.text());
-                        const config = JSON.parse(opencc_config);
+                        const config = JSON.parse(opencc_config) as OpenCcConfig;
 
-                        function parseDict(dict) {
+                        function parseDict(dict: OpenCcDict) {
                             if (dict.type === 'ocd2' || dict.type === 'text') {
                                 dependencies.add(`shared/opencc/${dict.file}`);
                             } else if (dict.type === 'group') {
-                                dict.dicts.forEach(d => parseDict(d));
+                                dict.dicts.forEach(parseDict);
                             }
                         }
 
@@ -404,7 +406,7 @@ function OptionsPage() {
                         }
 
                         if (config.conversion_chain) {
-                            config.conversion_chain.forEach(step => {
+                            config.conversion_chain.forEach((step: { dict?: OpenCcDict }) => {
                                 if (step.dict) {
                                     parseDict(step.dict);
                                 }
@@ -449,9 +451,10 @@ function OptionsPage() {
                     // file already exists
                     console.log(`${f} already exists, skipped`);
                 } else {
-                    let controller = new AbortController();
+                    const controller = new AbortController();
                     const res = await fetch(`${kRepoUrl}/${f}`, { signal: controller.signal, ...fetchInit });
-                    const size = parseInt(res.headers.get('Content-Length'));
+                    const sizeHeader = res.headers.get('Content-Length');
+                    const size = sizeHeader ? parseInt(sizeHeader, 10) : Number.NaN;
                     if ((size && size < 70 * 1024) ||
                         // If response is gzipped, size = NaN
                         isNaN(size)
@@ -473,11 +476,14 @@ function OptionsPage() {
             // Phase 2: Download big files
             let downloadedSize = 0;
             let phase2LastProgress = 0;
-            let phase2TotalSize = _.sum(phase2Sizes);
+            const phase2TotalSize = _.sum(phase2Sizes);
             for (let i = 0; i < phase2Files.length; i++) {
                 const f = phase2Files[i];
                 const res = await fetch(`${kRepoUrl}/${f}`, fetchInit);
-                const reader = res.body.getReader();
+                const reader = res.body?.getReader();
+                if (!reader) {
+                    throw new Error(`Missing response body for ${f}`);
+                }
                 const buf = new ArrayBuffer(phase2Sizes[i]);
                 let offset = 0;
                 while (true) {
@@ -487,7 +493,7 @@ function OptionsPage() {
                     chunk.set(new Uint8Array(value));
                     offset += value.length;
                     downloadedSize += value.length;
-                    let newProgress = kPhase1Weight + (kTotalProgress - kPhase1Weight) * downloadedSize / phase2TotalSize;
+                    const newProgress = kPhase1Weight + (kTotalProgress - kPhase1Weight) * downloadedSize / phase2TotalSize;
                     if (newProgress - phase2LastProgress > 0.5) {
                         setDownloadProgress(newProgress);
                         phase2LastProgress = newProgress;
@@ -499,7 +505,7 @@ function OptionsPage() {
 
             // Schema should be the last file to be written, in case an error is encountered while downloading
             await fs.writeWholeFile(`${schemaBasePath}/${schemaFile}`, new TextEncoder().encode(schemaYaml));
-            await addSelfDefinedSchema(id, schema.schema.name, schema.schema.description, data['repo'], postData.schema_id);
+            await addSelfDefinedSchema(id, schema.schema.name, schema.schema.description, data['repo'], finalSchemaId);
             setActiveSchemaOnInstall(id);
         } catch (ex) {
             console.log(ex);
@@ -511,7 +517,7 @@ function OptionsPage() {
     }
 
     async function downloadSchema(id: string, update: boolean = false) {
-        setFetchListError('');
+        setFetchListError(null);
         try {
             const fetchInit: RequestInit = { cache: "no-cache" };
             setDownloadSchemaId(id);
@@ -537,13 +543,13 @@ function OptionsPage() {
                         const configPath = `shared/opencc/${opencc?.opencc_config ?? "t2s.json"}`;
                         dependencies.add(configPath);
                         const opencc_config = await fetch(`${kRepoUrl}/${configPath}`, fetchInit).then(x => x.text());
-                        const config = JSON.parse(opencc_config);
+                        const config = JSON.parse(opencc_config) as OpenCcConfig;
 
-                        function parseDict(dict) {
+                        function parseDict(dict: OpenCcDict) {
                             if (dict.type === 'ocd2' || dict.type === 'text') {
                                 dependencies.add(`shared/opencc/${dict.file}`);
                             } else if (dict.type === 'group') {
-                                dict.dicts.forEach(d => parseDict(d));
+                                dict.dicts.forEach(parseDict);
                             }
                         }
 
@@ -552,7 +558,7 @@ function OptionsPage() {
                         }
 
                         if (config.conversion_chain) {
-                            config.conversion_chain.forEach(step => {
+                            config.conversion_chain.forEach((step: { dict?: OpenCcDict }) => {
                                 if (step.dict) {
                                     parseDict(step.dict);
                                 }
@@ -597,9 +603,10 @@ function OptionsPage() {
                     // file already exists
                     console.log(`${f} already exists, skipped`);
                 } else {
-                    let controller = new AbortController();
+                    const controller = new AbortController();
                     const res = await fetch(`${kRepoUrl}/${f}`, { signal: controller.signal, ...fetchInit });
-                    const size = parseInt(res.headers.get('Content-Length'));
+                    const sizeHeader = res.headers.get('Content-Length');
+                    const size = sizeHeader ? parseInt(sizeHeader, 10) : Number.NaN;
                     if ((size && size < 70 * 1024) ||
                         // If response is gzipped, size = NaN
                         isNaN(size)
@@ -621,11 +628,14 @@ function OptionsPage() {
             // Phase 2: Download big files
             let downloadedSize = 0;
             let phase2LastProgress = 0;
-            let phase2TotalSize = _.sum(phase2Sizes);
+            const phase2TotalSize = _.sum(phase2Sizes);
             for (let i = 0; i < phase2Files.length; i++) {
                 const f = phase2Files[i];
                 const res = await fetch(`${kRepoUrl}/${f}`, fetchInit);
-                const reader = res.body.getReader();
+                const reader = res.body?.getReader();
+                if (!reader) {
+                    throw new Error(`Missing response body for ${f}`);
+                }
                 const buf = new ArrayBuffer(phase2Sizes[i]);
                 let offset = 0;
                 while (true) {
@@ -635,7 +645,7 @@ function OptionsPage() {
                     chunk.set(new Uint8Array(value));
                     offset += value.length;
                     downloadedSize += value.length;
-                    let newProgress = kPhase1Weight + (kTotalProgress - kPhase1Weight) * downloadedSize / phase2TotalSize;
+                    const newProgress = kPhase1Weight + (kTotalProgress - kPhase1Weight) * downloadedSize / phase2TotalSize;
                     if (newProgress - phase2LastProgress > 0.5) {
                         setDownloadProgress(newProgress);
                         phase2LastProgress = newProgress;
@@ -649,7 +659,7 @@ function OptionsPage() {
             setActiveSchemaOnInstall(id);
         } catch (ex) {
             console.log(ex);
-            setFetchListError($$("error_downloading_schema") + ex.toString());
+            setFetchListError($$("error_downloading_schema") + String(ex));
         } finally {
             await loadLocalSchemaList();
             setDownloadSchemaId(null);
@@ -701,7 +711,7 @@ function OptionsPage() {
             const fs = await getFs();
             const zip = await JSZip.loadAsync(zipFile);
 
-            let schemaId = null;
+            let schemaId: string | null = null;
             const files: string[] = [];
             const totalFiles = Object.keys(zip.files).length;
             let processedFiles = 0;
@@ -732,9 +742,6 @@ function OptionsPage() {
 
                 const content = await zipEntry.async('uint8array');
 
-                // Determine the virtual filesystem path
-                let vfsPath: string;
-
                 // Only strip leading directory if it's a wrapper (not build/, shared/, lua/, opencc/)
                 let cleanFilename = filename;
                 const knownDirs = ['build/', 'shared/', 'lua/', 'opencc/'];
@@ -749,7 +756,7 @@ function OptionsPage() {
                 }
 
                 // Map to virtual filesystem path
-                vfsPath = mapToVfsPath(cleanFilename);
+                const vfsPath = mapToVfsPath(cleanFilename);
 
                 // Write to virtual filesystem
                 await fs.writeWholeFile(`${schemaBasePath}/${vfsPath}`, content);
@@ -804,12 +811,12 @@ return {}
 
             // Show success message temporarily
             setTimeout(() => {
-                setFetchListError('');
+                setFetchListError(null);
             }, 3000);
 
         } catch (ex) {
             console.error('Import error:', ex);
-            setFetchListError($$("error_importing_schema") + ': ' + ex.toString());
+            setFetchListError($$("error_importing_schema") + ': ' + String(ex));
         } finally {
             setDownloadSchemaId(null);
             setDownloadProgress(0);
@@ -903,7 +910,9 @@ return {}
                                                             opacity: isActive ? 0.45 : 1,
                                                             cursor: isActive ? "not-allowed" : undefined,
                                                         }}
-                                                        color={isActive ? "primary.main" : "error"}
+                                                        sx={{
+                                                            color: isActive ? "primary.main" : "error.main",
+                                                        }}
                                                         disabled={downloadSchemaId != null || isActive}>
                                                         {$$("remove_schema")}
                                                     </Link>;
@@ -949,7 +958,7 @@ return {}
                                         label="GitHub Repo URL"
                                         variant="filled"
                                         onChange={e => {
-                                            let v = e.target.value;
+                                            const v = e.target.value;
                                             setPersonalRepoURL(v);
                                         }}
                                         style={{ width: "400px" }}
@@ -961,7 +970,7 @@ return {}
                                         label="schema Id"
                                         variant="filled"
                                         onChange={e => {
-                                            let v = e.target.value;
+                                            const v = e.target.value;
                                             setPersonalRepoSchemaId(v);
                                         }}
                                         style={{ width: "150px", marginLeft: "8px" }}
@@ -1034,7 +1043,7 @@ return {}
                                         if (v.length >= 2) {
                                             v = v.substring(v.length - 1);
                                         }
-                                        let val = parseInt(v);
+                                        const val = parseInt(v, 10);
                                         if (!isNaN(val) && val >= kMinPageSize && val <= kMaxPageSize) {
                                             changeSettings({ pageSize: val });
                                         } else if (v.length == 0) {

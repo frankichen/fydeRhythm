@@ -4,6 +4,11 @@ import { defineConfig } from 'wxt';
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   outDir: 'build',
+  imports: {
+    eslintrc: {
+      enabled: 9,
+    },
+  },
 
   manifest: {
     name: '__MSG_extension_name__',

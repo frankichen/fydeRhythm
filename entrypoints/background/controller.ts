@@ -1,10 +1,9 @@
 import { Mutex } from "async-mutex";
 import { getFs, kDefaultSettings, type ImeSettings } from "@/lib/utils";
-import { RimeCandidateIterator, RimeEngine, RimeSession } from "./engine";
+import { type RimeCandidateIterator, RimeEngine, type RimeSession } from "./engine";
 import { parse, stringify } from 'yaml'
 import type { RimeCandidate } from "@/lib/shared-types";
 import EventEmitter from "events";
-import { ConstructionOutlined } from "@mui/icons-material";
 import { listEnabledInstalledSchemas } from "./schemas";
 
 const kShiftMask = 1 << 0;
@@ -14,7 +13,7 @@ const kAltMask = kMod1Mask;
 const kReleaseMask = 1 << 30;
 
 // Definitions from librime/include/X11/keysymdef.h
-const kSpecialKeys = {
+const kSpecialKeys: Record<string, number> = {
     'ArrowUp': 0xff52,
     'ArrowDown': 0xff54,
     'PageUp': 0xff55,
@@ -33,7 +32,7 @@ const kSpecialKeys = {
     'AltRight': 0xffea,
 }
 
-const kConventionalKeys = {};
+const kConventionalKeys: Record<string, number> = {};
 for (let i = 0; i <= 9; i++) {
     kConventionalKeys[`Digit${i}`] = i.toString().charCodeAt(0);
 }
@@ -43,16 +42,16 @@ for (let i = 'A'.charCodeAt(0); i <= 'Z'.charCodeAt(0); i++) {
 }
 
 export class InputController extends EventEmitter {
-    context?: chrome.input.ime.InputContext;
-    session?: RimeSession;
-    engineId?: string;
-    engine?: RimeEngine;
+    context: chrome.input.ime.InputContext | null;
+    session: RimeSession | null;
+    engineId: string | null;
+    engine: RimeEngine | null;
     loadMutex: Mutex;
-    inputCache: string[];
+    inputCache: Array<string | null>;
 
     rimeLogBuffer: string[];
     rimeLogBufferPos: number;
-    activeSettings: ImeSettings;
+    activeSettings: ImeSettings = kDefaultSettings;
 
     constructor() {
         super();
@@ -121,7 +120,7 @@ export class InputController extends EventEmitter {
     }
 
     inputCacheToString() {
-        const list = [];
+        const list: string[] = [];
         for (const s of this.inputCache) {
             if (s == null) {
                 list.pop();
@@ -247,7 +246,7 @@ export class InputController extends EventEmitter {
                         this.onToggleLanguageState(val);
                     }
                     // Send status to fyde
-                    const fydeLanguageStateFunction: (string) => void = (chrome.input.ime as any).showFydeLanguageState;
+                    const fydeLanguageStateFunction: (message: string) => void = (chrome.input.ime as any).showFydeLanguageState;
                     if (fydeLanguageStateFunction) {
                         if (this.session) {
                             this.session.getOptionLabel(name, val).then((v) => {
@@ -270,7 +269,7 @@ export class InputController extends EventEmitter {
             return true;
         } catch (ex) {
             console.error("Error while loading RIME engine: ", ex);
-            this.printErr(`Error while loading RIME engine: ${ex.toString()}`);
+            this.printErr(`Error while loading RIME engine: ${String(ex)}`);
             return false;
         }
     }
@@ -293,8 +292,6 @@ export class InputController extends EventEmitter {
                 }
             });
         }
-        if (this.inputViewVisible) {
-        }
         this.invalidateCandidateCache();
         this.sendCandidatesToInputView([]);
     }
@@ -305,7 +302,7 @@ export class InputController extends EventEmitter {
         this.resetUI();
     }
 
-    preeditEmpty: boolean;
+    preeditEmpty = false;
     setComposition(param: chrome.input.ime.CompositionParameters): Promise<void> {
         return new Promise((res, rej) => {
             // Check if param and param.text are valid
@@ -313,15 +310,15 @@ export class InputController extends EventEmitter {
                 rej(new Error('Invalid param or param.text is not a string'));
                 return;
             }
-              // Replace all spaces in param.text with underscore
-              // Using spaces may cause problems with Chinese character input within some Linux applications (such as QQ).
+            // Replace all spaces in param.text with underscore
+            // Using spaces may cause problems with Chinese character input within some Linux applications (such as QQ).
             param.text = param.text.replace(/\s+/g, '_');
             if (param.text.length == 0 && this.preeditEmpty) {
                 //  If preedit is already empty, and new preedit is also empty, then do not call
                 // setComposition. This will mostly happen in ASCII mode (e.g. input method is 
                 // switched off by pressing Shift). If we still call setComposition in this case,
                 // Chrome omnibar autofill text will disappear, resulting in bad user experience
-                res(null);
+                res();
             } else {
                 this.preeditEmpty = param.text.length == 0;
                 try {
@@ -329,7 +326,7 @@ export class InputController extends EventEmitter {
                         if (chrome.runtime.lastError) {
                             rej(new Error(chrome.runtime.lastError.message));
                         } else {
-                            ok ? res(null) : rej();
+                            ok ? res() : rej();
                         }
                     });
                 } catch (err) {
@@ -352,9 +349,9 @@ export class InputController extends EventEmitter {
     }
 
     async refreshContext(): Promise<void> {
-        if (!this.engineId)
-            return;
-        const promises = [];
+        const engineId = this.engineId;
+        if (!engineId) return;
+        const promises: Array<Promise<void>> = [];
         if (this.session != null && !this.loadMutex.isLocked()) {
             const rimeContext = await this.session?.getContext();
             if (rimeContext) {
@@ -373,9 +370,9 @@ export class InputController extends EventEmitter {
                 if (!this.inputViewVisible) {
                     // Virtual keyboard is not visible, candidiates are displayed in system candidate window
                     if (rimeContext.menu.candidates.length > 0) {
-                        promises.push(new Promise((res, rej) => {
+                        promises.push(new Promise<void>((res, rej) => {
                             chrome.input.ime.setCandidateWindowProperties({
-                                engineID: this.engineId,
+                                engineID: engineId,
                                 properties: {
                                     visible: true,
                                     cursorVisible: true,
@@ -386,34 +383,35 @@ export class InputController extends EventEmitter {
                                     windowPosition: 'composition',
                                     vertical: !this.activeSettings.horizontal
                                 }
-                            }, (ok) => ok ? res(null) : rej());
+                            }, (ok) => ok ? res() : rej());
                         }));
                         if (this.context != null) {
-                            promises.push(new Promise((res, rej) => {
+                            const contextId = this.context.contextID;
+                            promises.push(new Promise<void>((res, rej) => {
                                 chrome.input.ime.setCandidates({
-                                    contextID: this.context.contextID,
+                                    contextID: contextId,
                                     candidates: rimeContext.menu.candidates.map((v, idx) => ({
                                         candidate: v.text,
                                         id: idx,
                                         label: rimeContext.selectLabels[idx] || (idx + 1).toString()
                                     })),
-                                }, (ok) => ok ? res(null) : rej());
+                                }, (ok) => ok ? res() : rej());
                             }));
-                            promises.push(new Promise((res, rej) => {
+                            promises.push(new Promise<void>((res, rej) => {
                                 chrome.input.ime.setCursorPosition({
-                                    contextID: this.context.contextID,
+                                    contextID: contextId,
                                     candidateID: rimeContext.menu.highlightedCandidateIndex
-                                }, (ok) => ok ? res(null) : rej());
+                                }, (ok) => ok ? res() : rej());
                             }));
                         }
                     } else {
-                        promises.push(new Promise((res, rej) => {
+                        promises.push(new Promise<void>((res, rej) => {
                             chrome.input.ime.setCandidateWindowProperties({
-                                engineID: this.engineId,
+                                engineID: engineId,
                                 properties: {
                                     visible: false,
                                 }
-                            }, (ok) => ok ? res(null) : rej());
+                            }, (ok) => ok ? res() : rej());
                         }));
                     }
                 } else {
@@ -440,9 +438,9 @@ export class InputController extends EventEmitter {
                 }
                 if (!this.inputViewVisible) {
                     // Virtual keyboard is not visible, candidiates are displayed in system candidate window
-                    promises.push(new Promise((res, rej) => {
+                    promises.push(new Promise<void>((res, rej) => {
                         chrome.input.ime.setCandidateWindowProperties({
-                            engineID: this.engineId,
+                            engineID: engineId,
                             properties: {
                                 visible: true,
                                 cursorVisible: false,
@@ -452,14 +450,15 @@ export class InputController extends EventEmitter {
                                 windowPosition: 'composition',
                                 vertical: true
                             }
-                        }, (ok) => ok ? res(null) : rej());
+                        }, (ok) => ok ? res() : rej());
                     }));
                     if (this.context != null) {
-                        promises.push(new Promise((res, rej) => {
+                        const contextId = this.context.contextID;
+                        promises.push(new Promise<void>((res, rej) => {
                             chrome.input.ime.setCandidates({
-                                contextID: this.context.contextID,
+                                contextID: contextId,
                                 candidates: []
-                            }, (ok) => ok ? res(null) : rej());
+                            }, (ok) => ok ? res() : rej());
                         }));
                     }
                 } else {
@@ -475,7 +474,7 @@ export class InputController extends EventEmitter {
         }
         if (this.inputViewVisible) {
             chrome.input.ime.setCandidateWindowProperties({
-                engineID: this.engineId,
+                engineID: engineId,
                 properties: {
                     visible: false,
                 }
@@ -485,13 +484,17 @@ export class InputController extends EventEmitter {
     }
 
     async commitIfAvailable() {
-        let commit = await this.session.getCommit();
+        if (!this.session || !this.context) {
+            return;
+        }
+        const commit = await this.session.getCommit();
         if (commit) {
-            await new Promise((res, rej) => {
+            const contextId = this.context.contextID;
+            await new Promise<void>((res, rej) => {
                 chrome.input.ime.commitText({
-                    contextID: this.context.contextID,
+                    contextID: contextId,
                     text: commit.text
-                }, (ok) => ok ? res(null) : rej());
+                }, (ok) => ok ? res() : rej());
             });
             this.invalidateCandidateCache();
             this.sendCandidatesToInputView([]);
@@ -525,12 +528,13 @@ export class InputController extends EventEmitter {
                 try {
                     await this.cycleToNextSchema();
                 } catch (ex) {
-                    this.printErr('cycleToNextSchema: ' + ex);
+                    this.printErr('cycleToNextSchema: ' + String(ex));
                 }
                 return true;
             })();
         }
         if (this.session) {
+            const session = this.session;
             let mask = 0;
             if (keyData.altKey)
                 mask ^= kAltMask;
@@ -565,9 +569,9 @@ export class InputController extends EventEmitter {
             return (async () => {
                 let handled = false;
                 try {
-                    handled = await this.session.processKey(code, mask);
+                    handled = await session.processKey(code, mask);
                 } catch (ex) {
-                    this.printErr("Error while processing key " + ex.toString());
+                    this.printErr("Error while processing key " + String(ex));
                     console.error(ex);
                     handled = false;
                 }
@@ -626,8 +630,8 @@ export class InputController extends EventEmitter {
         await this.refreshContext();
     }
 
-    lastRightClickItem: number;
-    lastRightClickTime: number;
+    lastRightClickItem = -1;
+    lastRightClickTime = 0;
 
     rightClick(index: number) {
         const curTime = (new Date()).getTime();
@@ -643,7 +647,7 @@ export class InputController extends EventEmitter {
         }
     }
 
-    inputViewVisible: boolean;
+    inputViewVisible = false;
 
     async setAsciiMode(isAscii: boolean) {
         await this.session?.setOption("ascii_mode", isAscii);
@@ -659,7 +663,7 @@ export class InputController extends EventEmitter {
 
     // Only used in input view
     candidateCache: RimeCandidate[];
-    candidateIterator?: RimeCandidateIterator;
+    candidateIterator: RimeCandidateIterator | null;
 
     async fetchMoreCandidates(count: number) {
         if (this.candidateIterator) {

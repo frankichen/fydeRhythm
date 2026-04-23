@@ -1,9 +1,7 @@
 import CreateRimeWasm from "./rime_emscripten"
-import { getFs } from "@/lib/utils"
 import { Mutex } from 'async-mutex';
-import { openDB, deleteDB, unwrap } from "idb";
+import { openDB, deleteDB } from "idb";
 import type { RimeCandidate, RimeCommit, RimeContext, RimeSchema, RimeStatus } from "@/lib/shared-types";
-import type { Schema } from "yaml";
 import type { FastIndexedDbFsController } from "@/lib/fs";
 import EventEmitter from "events";
 
@@ -84,12 +82,7 @@ export class RimeSession extends EventEmitter {
 
     async actionCandidate(index: number, op: 'select' | 'delete', currentPage: boolean): Promise<void> {
         await this.engine.mutex.runExclusive(async () => {
-            let action: number;
-            if (op == 'select') {
-                action = 0;
-            } else if (op == 'delete') {
-                action = 1;
-            }
+            const action = op === 'select' ? 0 : 1;
             const s = await this.wasmSession.actionCandidate(index, action, currentPage);
             if (!s)
                 throw new Error(`Cannot ${op} candidate ${index}`);
@@ -134,11 +127,11 @@ export class RimeEngine {
         this.initialized = false;
     }
 
-    async initialize(printErr: (string) => void, fs: FastIndexedDbFsController, mountPath: string) {
+    async initialize(printErr: (message: string) => void, fs: FastIndexedDbFsController, mountPath: string) {
         await this.mutex.runExclusive(async () => {
             if (!this.initialized) {
                 this.wasmObject = await CreateRimeWasm({
-                    locateFile: (path, dir) => {
+                    locateFile: (path: string, _dir: string) => {
                         return '/' + path;
                     },
                     fsc: fs,

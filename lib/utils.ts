@@ -1,22 +1,22 @@
 import { FastIndexedDbFsController } from './fs'
 
-export function dec2hex(dec) {
+export function dec2hex(dec: number): string {
     return dec.toString(16).padStart(2, "0")
 }
 
-export function generateId(len) {
-    var arr = new Uint8Array((len || 40) / 2)
+export function generateId(len: number = 40): string {
+    const arr = new Uint8Array(len / 2)
     self.crypto.getRandomValues(arr)
     return Array.from(arr, dec2hex).join('')
 }
 
-export async function getFs() {
+export async function getFs(): Promise<FastIndexedDbFsController> {
     const fs = new FastIndexedDbFsController("rime-files");
     await fs.open();
     return fs;
 }
 
-export function formatBytes(bytes, decimals = 1) {
+export function formatBytes(bytes: number, decimals = 1): string {
     if (!+bytes) return '0 Bytes'
 
     const k = 1024
@@ -28,13 +28,13 @@ export function formatBytes(bytes, decimals = 1) {
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`
 }
 
-export function getParentPath(path) {
+export function getParentPath(path: string): string {
     const regex = /^(.*)\/[^/]*$/;
     const match = regex.exec(path);
     return match ? match[1] : "/";
 }
 
-export function getFileName(path) {
+export function getFileName(path: string): string | null {
     const regex = /\/([^/]+)$/;
     const match = regex.exec(path);
     return match ? match[1] : null;
