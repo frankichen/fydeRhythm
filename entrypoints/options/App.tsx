@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import _ from "lodash";
 import { parse } from 'yaml'
-import JSZip from 'jszip';
 import { ThemeProvider } from '@mui/material/styles';
 
 import theme from "./theme"
@@ -36,6 +35,7 @@ import Animation from "./utils/animation";
 import FileEditorButton from "./fileEditor";
 import RimeLogDisplay from "./rimeLogDisplay";
 import { $$, getFs, type ImeSettings, kDefaultSettings } from "@/lib/utils";
+import { detectSchemaInZip, importSchemaFromZip } from "@/lib/import-schema";
 import { sendMessage } from "@/lib/messaging";
 import Link from "@mui/material/Link";
 
@@ -175,10 +175,26 @@ function OptionsPage() {
         }
         console.log("fetch", newData);
         const selfDefinedSchema = await getSelfDefinedSchemaList();
-        newData.schemas = newData.schemas.concat(selfDefinedSchema);
+        newData.schemas = mergeSchemaList(newData.schemas, selfDefinedSchema);
         console.log(newData);
         setSchemaList(newData);
         await chrome.storage.local.set({ schemaList: newData });
+    }
+
+    function mergeSchemaList(predefinedSchemas: SchemaDescription[], selfDefinedSchemas: SchemaDescription[]) {
+        const seen = new Set(predefinedSchemas.map(schema => schema.id));
+        const uniqueSelfDefinedSchemas = selfDefinedSchemas.filter(schema => {
+            if (seen.has(schema.id)) {
+                return false;
+            }
+            seen.add(schema.id);
+            return true;
+        });
+        return predefinedSchemas.concat(uniqueSelfDefinedSchemas);
+    }
+
+    function getPredefinedSchema(id: string): SchemaDescription | null {
+        return schemaList.schemas.find(schema => schema.id === id && !schema.user) ?? null;
     }
 
     useEffect(() => {
@@ -666,158 +682,54 @@ function OptionsPage() {
         }
     }
 
-    // Helper function to map server file paths to virtual filesystem paths
-    function mapToVfsPath(serverPath: string): string {
-        // Lua files need to be in shared/lua/ for librime to find them
-        if (serverPath.startsWith('lua/')) {
-            return 'shared/' + serverPath;
-        }
-        return serverPath;
-    }
-
-    // Validate imported schema
-    async function validateImportedSchema(schemaId: string): Promise<{ schemaConfig: any }> {
-        const fs = await getFs();
-
-        // Check for required files
-        const schemaBasePath = `/root/${schemaId}`;
-        const requiredFile = `${schemaBasePath}/build/${schemaId}.schema.yaml`;
-        const schemaYaml = await fs.readEntry(requiredFile);
-
-        if (!schemaYaml) {
-            throw new Error(`Missing required file: ${schemaId}.schema.yaml`);
-        }
-
-        // Parse and validate schema.yaml
-        const content = await fs.readWholeFile(requiredFile);
-        const textDecoder = new TextDecoder();
-        const schemaConfig = parse(textDecoder.decode(content));
-
-        if (!schemaConfig.schema || !schemaConfig.schema.schema_id) {
-            throw new Error('Invalid schema.yaml format - missing schema.schema_id');
-        }
-
-        console.log(`Schema ${schemaId} validated successfully`);
-        return { schemaConfig };
-    }
-
-    // Import compiled schema from ZIP file
     async function importCompiledSchema(zipFile: File) {
-        setFetchListError('');
+        setFetchListError(null);
         try {
             setDownloadSchemaId('importing');
-            setDownloadProgress(10);
+            setDownloadProgress(0);
 
-            const fs = await getFs();
-            const zip = await JSZip.loadAsync(zipFile);
+            const detectedSchema = await detectSchemaInZip(zipFile);
+            const predefinedSchema = getPredefinedSchema(detectedSchema.schemaId);
+            if (predefinedSchema) {
+                setDownloadSchemaId(null);
+                setDownloadProgress(0);
 
-            let schemaId: string | null = null;
-            const files: string[] = [];
-            const totalFiles = Object.keys(zip.files).length;
-            let processedFiles = 0;
-
-            // First pass: detect schema ID
-            for (const [filename, zipEntry] of Object.entries(zip.files)) {
-                if (zipEntry.dir) continue;
-
-                // Detect schema ID from .schema.yaml filename in build/ directory
-                const match = filename.match(/(?:^|\/|build\/)([^/]+)\.schema\.yaml$/);
-                if (match) {
-                    schemaId = match[1];
-                    console.log(`Detected schema ID: ${schemaId}`);
-                    break;
-                }
-            }
-
-            if (!schemaId) {
-                throw new Error('Could not detect schema ID. ZIP must contain a .schema.yaml file.');
-            }
-
-            const schemaBasePath = `/root/${schemaId}`;
-            setDownloadProgress(20);
-
-            // Second pass: extract all files
-            for (const [filename, zipEntry] of Object.entries(zip.files)) {
-                if (zipEntry.dir) continue;
-
-                const content = await zipEntry.async('uint8array');
-
-                // Only strip leading directory if it's a wrapper (not build/, shared/, lua/, opencc/)
-                let cleanFilename = filename;
-                const knownDirs = ['build/', 'shared/', 'lua/', 'opencc/'];
-                const startsWithKnownDir = knownDirs.some(dir => filename.startsWith(dir));
-
-                if (!startsWithKnownDir && filename.includes('/')) {
-                    const parts = filename.split('/');
-                    // Strip first directory if it's a wrapper (e.g., "schema-name/build/file.yaml" → "build/file.yaml")
-                    if (parts.length > 2 && !parts[0].includes('.')) {
-                        cleanFilename = parts.slice(1).join('/');
+                const message = $$("import_predefined_schema_confirm", detectedSchema.schemaId) ||
+                    `Schema "${detectedSchema.schemaId}" is already predefined. Import the predefined schema instead?`;
+                if (window.confirm(message)) {
+                    if (localSchemaList.includes(detectedSchema.schemaId)) {
+                        setActiveSchemaOnInstall(detectedSchema.schemaId);
+                    } else {
+                        await downloadSchema(detectedSchema.schemaId);
                     }
                 }
-
-                // Map to virtual filesystem path
-                const vfsPath = mapToVfsPath(cleanFilename);
-
-                // Write to virtual filesystem
-                await fs.writeWholeFile(`${schemaBasePath}/${vfsPath}`, content);
-                files.push(vfsPath);
-                console.log(`Imported: ${vfsPath}`);
-
-                processedFiles++;
-                setDownloadProgress(20 + (70 * processedFiles / totalFiles));
+                return;
             }
 
-            setDownloadProgress(90);
+            const fs = await getFs();
+            const result = await importSchemaFromZip(zipFile, fs, {
+                onProgress: setDownloadProgress,
+            });
 
-            // Create .rime.lua initialization file if Lua files were imported
-            const hasLuaFiles = files.some(f => f.startsWith('shared/lua/') && f.endsWith('.lua'));
-            if (hasLuaFiles) {
-                const rimeluaContent = `-- Auto-generated initialization file for ${schemaId}
--- This file is required by librime's Lua plugin
-return {}
-`;
-                const encoder = new TextEncoder();
-                await fs.writeWholeFile(`${schemaBasePath}/shared/${schemaId}.rime.lua`, encoder.encode(rimeluaContent));
-                console.log(`Created initialization file: ${schemaBasePath}/shared/${schemaId}.rime.lua`);
-            }
-
-            // Validate the imported schema and get schema info
-            const { schemaConfig } = await validateImportedSchema(schemaId);
-
-            setDownloadProgress(90);
-
-            // Add schema to self-defined schema list so it appears in UI
-            const schemaName = schemaConfig.schema?.name || '';
-            const schemaDescription = schemaConfig.schema?.description || 'Imported from ZIP';
             await addSelfDefinedSchema(
-                schemaId,
-                schemaName,
-                schemaDescription,
-                '', // no website for imported schemas
-                schemaId // realName = schemaId for imported schemas
+                result.schemaId,
+                result.schemaName,
+                result.schemaDescription,
+                '',
+                result.schemaId,
             );
 
-            setDownloadProgress(95);
-
-            console.log(`Schema ${schemaId} imported successfully! Total files: ${files.length}`);
-
-            // Update local schema list
             await loadLocalSchemaList();
-
-            // Set as active schema
-            setActiveSchemaOnInstall(schemaId);
-
+            setActiveSchemaOnInstall(result.schemaId);
             setDownloadProgress(100);
+            console.log(`Schema ${result.schemaId} imported successfully! Total files: ${result.fileCount}`);
 
-            // Show success message temporarily
-            setTimeout(() => {
-                setFetchListError(null);
-            }, 3000);
-
+            setTimeout(() => setFetchListError(null), 3000);
         } catch (ex) {
             console.error('Import error:', ex);
             setFetchListError($$("error_importing_schema") + ': ' + String(ex));
         } finally {
+            await loadLocalSchemaList();
             setDownloadSchemaId(null);
             setDownloadProgress(0);
         }

@@ -79,6 +79,9 @@
      "import_compiled_schema_hint": {
         "message": "Import pre-compiled schema (.zip file)"
      },
+     "import_predefined_schema_confirm": {
+        "message": "Schema \"$1\" is already included in the predefined schema list. Import the predefined schema instead?"
+     },
      "error_form": {
         "message": "GitHub repo URL or schema_id error"
      },

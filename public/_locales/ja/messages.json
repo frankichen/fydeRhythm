@@ -79,6 +79,9 @@
     "import_compiled_schema_hint": {
         "message": "コンパイル済みスキーマをインポート（.zip ファイル）"
     },
+    "import_predefined_schema_confirm": {
+        "message": "スキーマ「$1」は定義済みスキーマ一覧に含まれています。定義済みスキーマをインポートしますか？"
+    },
     "error_form": {
         "message": "GitHub リポジトリ URL または schema_id エラー"
     },

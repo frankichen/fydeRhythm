@@ -79,6 +79,9 @@
     "import_compiled_schema_hint": {
         "message": "匯入預編譯方案（.zip 檔案）"
     },
+    "import_predefined_schema_confirm": {
+        "message": "方案「$1」已包含在預定義方案列表中，是否改為匯入預定義方案？"
+    },
     "error_form": {
         "message": "GitHub 庫 URL 或 schema_id 錯誤"
     },
