@@ -174,6 +174,19 @@ export class InputController extends EventEmitter {
     }
 
     async loadRime(maintenance: boolean): Promise<boolean> {
+        const showFydeLanguageState = (message: string) => {
+            const trimmed = message.trim();
+            if (!trimmed || !this.engineId) return;
+            const fn: ((message: string) => void) | undefined = (chrome.input.ime as any).showFydeLanguageState;
+            if (typeof fn === "function") {
+                try {
+                    fn(trimmed);
+                } catch (ex) {
+                    console.error("showFydeLanguageState failed", ex);
+                }
+            }
+        };
+
         if (this.engineId) {
             this.resetUI();
         }
@@ -245,26 +258,30 @@ export class InputController extends EventEmitter {
                     if (name == "ascii_mode") {
                         this.onToggleLanguageState(val);
                     }
-                    // Send status to fyde
-                    const fydeLanguageStateFunction: (message: string) => void = (chrome.input.ime as any).showFydeLanguageState;
-                    if (fydeLanguageStateFunction) {
-                        if (this.session) {
-                            this.session.getOptionLabel(name, val).then((v) => {
-                                const empty = v == null || v.trim() == "";
-                                if (!empty) {
-                                    fydeLanguageStateFunction(v);
-                                } else if (name == "ascii_mode") {
-                                    fydeLanguageStateFunction(val ? "EN" : "中");
-                                } else {
-                                    fydeLanguageStateFunction(`${name}: ${val}`);
-                                }
-                            })
-                        }
+                    if (this.session) {
+                        void this.session.getOptionLabel(name, val).then((v) => {
+                            const empty = v == null || v.trim() == "";
+                            if (!empty) {
+                                showFydeLanguageState(v);
+                            } else if (name == "ascii_mode") {
+                                showFydeLanguageState(val ? "EN" : "中");
+                            } else {
+                                showFydeLanguageState(`${name}: ${val}`);
+                            }
+                        }).catch((ex) => {
+                            console.error("Error while showing option language state", ex);
+                        });
                     }
                 });
                 this.notifyRimeStatusChanged();
             });
             await this.refreshContext();
+            try {
+                const status = await this.session?.getStatus();
+                showFydeLanguageState(status?.schemaName || status?.schemaId || this.activeSettings.schema);
+            } catch (ex) {
+                console.error("Error while showing schema language state", ex);
+            }
             this.emit("schemaSwitched", this.activeSettings.schema);
             return true;
         } catch (ex) {
