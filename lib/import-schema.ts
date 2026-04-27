@@ -182,7 +182,7 @@ async function loadSchemaZip(
 
     let zip: JSZip;
     try {
-        zip = await JSZip.loadAsync(zipFile);
+        zip = await JSZip.loadAsync(await zipFile.arrayBuffer());
     } catch (err) {
         throw new Error(
             `Could not read ZIP file: it may be corrupted or not a ZIP archive (${errorMessage(err)}).`,
@@ -203,10 +203,7 @@ async function loadSchemaZip(
 
     const normalized = rawEntries
         .map(([name, entry]) => ({ entry, path: stripWrapper(name) }))
-        .filter(({ path }) => {
-            assertSafePath(path);
-            return isRoutable(path);
-        });
+        .filter(({ path }) => isRoutable(path));
 
     const schemaCandidates = normalized.filter(({ path }) =>
         basename(path).endsWith(SCHEMA_CONFIG_SUFFIX),
@@ -307,17 +304,6 @@ function stripWrapper(filename: string): string {
         p = p.slice(head.length + 1);
     }
     return p;
-}
-
-function assertSafePath(path: string): void {
-    if (!path || path.startsWith('/')) {
-        throw new Error(`Unsafe path in ZIP: ${path}`);
-    }
-    for (const part of path.split('/')) {
-        if (part === '' || part === '.' || part === '..') {
-            throw new Error(`Unsafe path in ZIP: ${path}`);
-        }
-    }
 }
 
 function isRoutable(path: string): boolean {

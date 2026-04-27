@@ -34,6 +34,8 @@
   "include": [
     "entrypoints/**/*",
     "lib/**/*",
+    "tests/**/*",
+    "vitest.config.ts",
     "wxt-env.d.ts"
   ],
   "exclude": [

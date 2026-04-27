@@ -5,7 +5,13 @@ import tseslint from "typescript-eslint";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 
-const sourceFiles = ["entrypoints/**/*.{ts,tsx}", "lib/**/*.{ts,tsx}", "wxt.config*.ts"];
+const sourceFiles = [
+  "entrypoints/**/*.{ts,tsx}",
+  "lib/**/*.{ts,tsx}",
+  "tests/**/*.ts",
+  "vitest.config.ts",
+  "wxt.config*.ts",
+];
 
 export default tseslint.config(
   autoImports,
