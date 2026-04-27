@@ -52,6 +52,7 @@ export class InputController extends EventEmitter {
     rimeLogBuffer: string[];
     rimeLogBufferPos: number;
     activeSettings: ImeSettings = kDefaultSettings;
+    lastSuccessfulSchema: string | null = null;
 
     constructor() {
         super();
@@ -283,10 +284,25 @@ export class InputController extends EventEmitter {
                 console.error("Error while showing schema language state", ex);
             }
             this.emit("schemaSwitched", this.activeSettings.schema);
+            this.lastSuccessfulSchema = this.activeSettings.schema;
             return true;
         } catch (ex) {
             console.error("Error while loading RIME engine: ", ex);
             this.printErr(`Error while loading RIME engine: ${String(ex)}`);
+            const failedSchema = this.activeSettings?.schema;
+            const fallback = this.lastSuccessfulSchema;
+            if (fallback && fallback !== failedSchema) {
+                this.printErr(`Schema "${failedSchema}" failed to load, falling back to "${fallback}"`);
+                try {
+                    const configObj = await chrome.storage.sync.get(["settings"]);
+                    const settings = (configObj.settings ?? kDefaultSettings) as ImeSettings;
+                    await chrome.storage.sync.set({ settings: { ...settings, schema: fallback } });
+                    return await this.loadRime(maintenance);
+                } catch (fallbackEx) {
+                    this.printErr(`Fallback to "${fallback}" also failed: ${String(fallbackEx)}`);
+                }
+            }
+            this.notifyRimeStatusChanged();
             return false;
         }
     }

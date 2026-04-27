@@ -3,10 +3,40 @@ import type { ImeSettings } from '../lib/utils';
 
 const mocks = vi.hoisted(() => ({
     listEnabledInstalledSchemas: vi.fn(),
+    fs: {
+        readEntryRaw: vi.fn(async () => true),
+        createDirectory: vi.fn(async () => { }),
+        readWholeFile: vi.fn(async () => new Uint8Array()),
+        writeWholeFile: vi.fn(async () => { }),
+    },
+    getFs: vi.fn(),
+    createSession: vi.fn((schema: string) => ({
+        addListener: vi.fn(),
+        destroy: vi.fn(),
+        getContext: vi.fn(async () => null),
+        getOption: vi.fn(async () => false),
+        getOptionLabel: vi.fn(async () => ''),
+        getStatus: vi.fn(async () => ({ schemaId: schema })),
+        processKey: vi.fn(async () => true),
+        setOption: vi.fn(async () => { }),
+    })),
+    createEngine: vi.fn(),
+    RimeEngine: vi.fn(function () {
+        return mocks.createEngine();
+    }),
 }));
 
 vi.mock('../entrypoints/background/engine', () => ({
-    RimeEngine: vi.fn(),
+    RimeEngine: mocks.RimeEngine,
+}));
+
+vi.mock('@/lib/utils', () => ({
+    getFs: mocks.getFs,
+    kDefaultSettings: {
+        schema: 'aurora',
+        pageSize: 5,
+        algebraList: [],
+    },
 }));
 
 vi.mock('../entrypoints/background/schemas', () => ({
@@ -16,8 +46,13 @@ vi.mock('../entrypoints/background/schemas', () => ({
 const { InputController } = await import('../entrypoints/background/controller');
 
 function stubChrome(settings?: ImeSettings) {
-    const get = vi.fn(async () => ({ settings }));
-    const set = vi.fn(async () => { });
+    let storedSettings = settings;
+    const get = vi.fn(async () => ({ settings: storedSettings }));
+    const set = vi.fn(async (obj: { settings?: ImeSettings }) => {
+        if (obj.settings) {
+            storedSettings = obj.settings;
+        }
+    });
     const sendMessage = vi.fn();
 
     vi.stubGlobal('chrome', {
@@ -51,6 +86,21 @@ function settings(overrides: Partial<ImeSettings> = {}): ImeSettings {
 describe('InputController schema switching', () => {
     beforeEach(() => {
         mocks.listEnabledInstalledSchemas.mockReset();
+        mocks.fs.readEntryRaw.mockClear();
+        mocks.fs.createDirectory.mockClear();
+        mocks.fs.readWholeFile.mockClear();
+        mocks.fs.writeWholeFile.mockClear();
+        mocks.getFs.mockReset();
+        mocks.getFs.mockResolvedValue(mocks.fs);
+        mocks.createSession.mockClear();
+        mocks.createEngine.mockReset();
+        mocks.createEngine.mockImplementation(() => ({
+            createSession: vi.fn(async (schema: string) => mocks.createSession(schema)),
+            destroy: vi.fn(),
+            initialize: vi.fn(async () => { }),
+            rebuildPrism: vi.fn(async () => { }),
+        }));
+        mocks.RimeEngine.mockClear();
     });
 
     it('cycles to the next enabled installed schema and reloads RIME', async () => {
@@ -165,5 +215,54 @@ describe('InputController schema switching', () => {
 
         expect(handled).toBe(true);
         expect(cycleToNextSchema).not.toHaveBeenCalled();
+    });
+
+    it('records the last successfully loaded schema', async () => {
+        stubChrome(settings({ schema: 'aurora' }));
+        const controller = new InputController();
+        vi.spyOn(controller, 'loadRimeConfig').mockResolvedValue('schema: aurora\n');
+
+        await expect(controller.loadRime(false)).resolves.toBe(true);
+
+        expect(controller.lastSuccessfulSchema).toBe('aurora');
+    });
+
+    it('falls back to the last successfully loaded schema when a later schema fails', async () => {
+        const chromeMock = stubChrome(settings({ schema: 'broken' }));
+        const controller = new InputController();
+        controller.lastSuccessfulSchema = 'aurora';
+        const loadRimeConfig = vi.spyOn(controller, 'loadRimeConfig');
+        loadRimeConfig.mockImplementation(async (activeSettings) => {
+            if (activeSettings.schema === 'broken') {
+                throw new Error('bad schema');
+            }
+            return 'schema: aurora\n';
+        });
+
+        await expect(controller.loadRime(true)).resolves.toBe(true);
+
+        expect(chromeMock.set).toHaveBeenCalledWith({
+            settings: {
+                schema: 'aurora',
+                pageSize: 5,
+                algebraList: [],
+            },
+        });
+        expect(loadRimeConfig).toHaveBeenCalledTimes(2);
+        expect(loadRimeConfig).toHaveBeenNthCalledWith(1, expect.objectContaining({ schema: 'broken' }));
+        expect(loadRimeConfig).toHaveBeenNthCalledWith(2, expect.objectContaining({ schema: 'aurora' }));
+        expect(controller.lastSuccessfulSchema).toBe('aurora');
+    });
+
+    it('does not retry fallback when there is no previously successful schema', async () => {
+        const chromeMock = stubChrome(settings({ schema: 'broken' }));
+        const controller = new InputController();
+        const loadRimeConfig = vi.spyOn(controller, 'loadRimeConfig').mockRejectedValue(new Error('bad schema'));
+
+        await expect(controller.loadRime(false)).resolves.toBe(false);
+
+        expect(chromeMock.set).not.toHaveBeenCalled();
+        expect(loadRimeConfig).toHaveBeenCalledTimes(1);
+        expect(chromeMock.sendMessage).toHaveBeenCalledWith({ rimeStatusChanged: true }, {}, expect.any(Function));
     });
 });
