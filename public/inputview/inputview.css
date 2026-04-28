@@ -331,18 +331,38 @@
   z-index: 999;
 }
 
+.inputview-altdata-view {
+  -webkit-box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18),
+                      0 2px 6px rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(55, 71, 79, 0.12);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
 @media (prefers-color-scheme: dark) {
   .inputview-menu-view,
   .inputview-altdata-view {
     background-color: #202124;
     -webkit-box-shadow: unset;
   }
+
+  .inputview-altdata-view {
+    border-color: rgba(255, 255, 255, 0.12);
+    -webkit-box-shadow: 0 8px 24px rgba(0, 0, 0, 0.38),
+                        0 2px 6px rgba(0, 0, 0, 0.28);
+  }
 }
 .inputview-altdata-separator {
   height: 20px;
-  border-left: 1px solid #ddd;
+  border-left: 1px solid rgba(55, 71, 79, 0.12);
   position: relative;
   display: inline-block;
+}
+
+@media (prefers-color-scheme: dark) {
+  .inputview-altdata-separator {
+    border-left-color: rgba(255, 255, 255, 0.12);
+  }
 }
 .inputview-swipe-view {
   background-color: rgba(0, 0, 0, 0);
@@ -367,6 +387,12 @@
   color: #111111;
   vertical-align: middle;
   text-align: center;
+}
+
+@media (prefers-color-scheme: dark) {
+  .inputview-altdata-key {
+    color: #f1f3f4;
+  }
 }
 .inputview-a11y .inputview-altdata-key {
   font-size: 18px;
@@ -995,4 +1021,3 @@
   height: 17px;
   width: 16.5px;
 }
-

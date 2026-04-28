@@ -51,6 +51,17 @@ function commitText_(text) {
   chrome.virtualKeyboardPrivate.insertText(text);
 }
 
+function isCompactAltKeyEvent_(keyData) {
+  return keyData.length == 2 &&
+      keyData[0].type == 'keydown' &&
+      keyData[1].type == 'keyup' &&
+      keyData[0].key &&
+      keyData[0].key == keyData[1].key &&
+      typeof keyData[0].code == 'string' &&
+      keyData[0].code.indexOf('compactkbd-k-') == 0 &&
+      keyData[1].code == keyData[0].code;
+}
+
 /**
  * Computes keyCodes for use with ui::KeyEvent.
  * @param {string} keyChar Character being typed.
@@ -88,6 +99,10 @@ function getKeyCode_(keyChar, keyName) {
  * @param {!Object} keyData Description of the key event.
  */
 function sendKeyEvent_(keyData) {
+  if (isCompactAltKeyEvent_(keyData)) {
+    commitText_(keyData[0].key);
+    return;
+  }
   keyData.forEach(function(data) {
     var charValue = data.key.length == 1 ? data.key.charCodeAt(0) : 0;
     var keyCode = data.keyCode ? data.keyCode :
@@ -279,6 +294,68 @@ function onSwitchToKeyset(keyset, callback) {
 function overrideGetSpatialData() {
   var Controller = i18n.input.chrome.inputview.Controller;
   Controller.prototype.getSpatialData_ = function() {};
+}
+
+function overrideAltDataView() {
+  var AltDataView = i18n.input.chrome.inputview.elements.content.AltDataView;
+  if (!AltDataView || AltDataView.prototype.fydeInlineAltData_) {
+    return;
+  }
+  var show = AltDataView.prototype.show;
+  var getHighlightedCharacter = AltDataView.prototype.getHighlightedCharacter;
+  var highlightItem = AltDataView.prototype.highlightItem;
+  AltDataView.prototype.show = function() {
+    this.useIMEWindow_ = false;
+    this.fydeSuppressInitialHighlight_ = true;
+    try {
+      show.apply(this, arguments);
+    } finally {
+      this.fydeSuppressInitialHighlight_ = false;
+    }
+    if (!this.visible_) {
+      if (this.coverElement_) {
+        goog.style.setElementShown(this.coverElement_, false);
+      }
+      if (this.triggeredBy) {
+        this.triggeredBy.setHighlighted(false);
+      }
+      return;
+    }
+
+    var key = arguments[0];
+    if (key && key.getElement) {
+      var parentKeyLeftTop = goog.style.getClientPosition(key.getElement());
+      var width = key.availableWidth || 0;
+      var height = key.availableHeight || 0;
+      var w = key.type == i18n.input.chrome.ElementType.COMPACT_KEY ?
+          Math.round(width * 0.8) : Math.round(width * 0.9);
+      var h = key.type == i18n.input.chrome.ElementType.COMPACT_KEY ?
+          Math.round(height * 0.8) : Math.round(height * 0.9);
+      highlightItem.call(this,
+          Math.ceil(parentKeyLeftTop.x + w / 2),
+          Math.ceil(parentKeyLeftTop.y + h / 2),
+          arguments[2]);
+    }
+    if (!this.visible_ && this.coverElement_) {
+      goog.style.setElementShown(this.coverElement_, false);
+    }
+  };
+  AltDataView.prototype.highlightItem = function() {
+    if (this.fydeSuppressInitialHighlight_) {
+      return;
+    }
+    return highlightItem.apply(this, arguments);
+  };
+  AltDataView.prototype.getHighlightedCharacter = function() {
+    if (this.useIMEWindow_) {
+      return getHighlightedCharacter.apply(this, arguments);
+    }
+    if (this.highlightIndex_ < 0 || !this.altdataElements_[this.highlightIndex_]) {
+      return '';
+    }
+    return getHighlightedCharacter.apply(this, arguments);
+  };
+  AltDataView.prototype.fydeInlineAltData_ = true;
 }
 
 /**
@@ -481,6 +558,8 @@ window.initializeVirtualKeyboard = function(keyset, languageCode, passwordLayout
   inputview.createWindow = function (url, options, callback) {
     console.log(">>>inputview.createWindow");
   }
+
+  overrideAltDataView();
 
   var Controller = i18n.input.chrome.inputview.Controller;
   Controller.DISABLE_HWT = !(opt_config && opt_config.enableHwtForTesting);
