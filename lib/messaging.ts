@@ -15,6 +15,7 @@ interface ProtocolMap {
     logs: string[];
   };
   ReloadRime: () => void;
+  RefreshImeMenu: () => void;
   SimulateKey: (keyData: any) => {
     handled: boolean;
   };

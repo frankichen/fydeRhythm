@@ -320,21 +320,27 @@ function OptionsPage() {
 
             // Remove from self-defined schema list if it exists there
             const selfDefinedSchema = await getSelfDefinedSchemaList();
-            const wasSelfDefined = selfDefinedSchema.some(el => el.id === id);
-            if (wasSelfDefined) {
-                const result = selfDefinedSchema.filter(el => (el.id != id));
-                await chrome.storage.local.set({ "selfDefinedSchema": result });
+            if (selfDefinedSchema.some(el => el.id === id)) {
+                await chrome.storage.local.set({ selfDefinedSchema: selfDefinedSchema.filter(el => el.id !== id) });
             }
 
-            const strippedEnabled = imeSettings.enabledSchemas?.filter(x => x !== id);
-            const enabledChange = (strippedEnabled && strippedEnabled.length !== imeSettings.enabledSchemas!.length)
-                ? { enabledSchemas: strippedEnabled }
-                : {};
+            // Persist the enabledSchemas update immediately (bypassing the dirty-snackbar
+            // path) so the tray refresh triggered below sees the correct state.
+            if (imeSettings.enabledSchemas) {
+                const next = imeSettings.enabledSchemas.filter(x => x !== id);
+                if (next.length !== imeSettings.enabledSchemas.length) {
+                    const updated = { ...imeSettings, enabledSchemas: next };
+                    await chrome.storage.sync.set({ settings: updated });
+                    setImeSettings(updated);
+                }
+            }
+
+            // Request an immediate tray refresh. This covers all paths – including
+            // non-self-defined schemas and legacy mode (enabledSchemas: undefined) –
+            // without waiting for the loadSchemaList() network round-trip.
+            await sendMessage("RefreshImeMenu");
 
             await loadLocalSchemaList();
-            if (Object.keys(enabledChange).length > 0) {
-                changeSettings(enabledChange);
-            }
             await loadSchemaList();
         } catch (ex) {
             console.error("Error removing schema:", ex);

@@ -19,12 +19,10 @@ async function buildSchemaMenuItems(activeSchema: string, enabledSchemas?: strin
 async function refreshImeMenuItems() {
   const engineID = self.controller?.engineId;
   if (!engineID) return;
-  let active = self.controller?.activeSettings;
-  if (!active?.schema) {
-    const obj = await chrome.storage.sync.get(["settings"]) as { settings?: ImeSettings };
-    active = obj.settings;
-  }
-  const items = await buildSchemaMenuItems(active?.schema ?? "", active?.enabledSchemas);
+  const obj = await chrome.storage.sync.get(["settings"]) as { settings?: ImeSettings };
+  const active = (obj.settings?.schema ? obj.settings : null) ?? self.controller?.activeSettings;
+  if (!active?.schema) return;
+  const items = await buildSchemaMenuItems(active.schema, active.enabledSchemas);
   try {
     chrome.input.ime.setMenuItems({ engineID, items });
   } catch (ex) {
@@ -168,6 +166,10 @@ export default defineBackground({
 
     onMessage('ReloadRime', async () => {
       await self.controller.loadRime(true);
+    });
+
+    onMessage('RefreshImeMenu', async () => {
+      await refreshImeMenuItems();
     });
 
     onMessage('SimulateKey', () => {
