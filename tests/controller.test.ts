@@ -217,6 +217,35 @@ describe('InputController schema switching', () => {
         expect(cycleToNextSchema).not.toHaveBeenCalled();
     });
 
+    it('clears active RIME composition when deactivated', () => {
+        stubChrome(settings());
+        const controller = new InputController();
+        const clearComposition = vi.fn();
+        const candidateIterator = { destroy: vi.fn() };
+        const candidatesBack = vi.fn();
+
+        controller.engineId = 'engine';
+        controller.context = { contextID: 7 } as chrome.input.ime.InputContext;
+        controller.session = { clearComposition } as any;
+        controller.inputCache = ['n', 'i'];
+        controller.preeditEmpty = false;
+        controller.candidateCache = [{ text: '你', index: 0 } as any];
+        controller.candidateIterator = candidateIterator as any;
+        controller.addListener('candidatesBack', candidatesBack);
+
+        controller.deactivate('engine');
+
+        expect(clearComposition).toHaveBeenCalledTimes(1);
+        expect(controller.engineId).toBeNull();
+        expect(controller.context).toBeNull();
+        expect(controller.inputCache).toEqual([]);
+        expect(controller.preeditEmpty).toBe(true);
+        expect(controller.candidateCache).toEqual([]);
+        expect(candidateIterator.destroy).toHaveBeenCalledTimes(1);
+        expect(controller.candidateIterator).toBeNull();
+        expect(candidatesBack).toHaveBeenCalledWith([]);
+    });
+
     it('records the last successfully loaded schema', async () => {
         stubChrome(settings({ schema: 'aurora' }));
         const controller = new InputController();

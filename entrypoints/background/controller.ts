@@ -318,13 +318,19 @@ export class InputController extends EventEmitter {
             });
         }
         if (this.engineId != null) {
-            chrome.input.ime.setCandidateWindowProperties({
-                engineID: this.engineId,
-                properties: {
-                    visible: false,
-                }
-            });
+            void this.setCandidateWindowProperties(this.engineId, { visible: false });
         }
+        this.invalidateCandidateCache();
+        this.sendCandidatesToInputView([]);
+    }
+
+    deactivate(engineId?: string) {
+        if (engineId && this.engineId !== engineId) return;
+        this.session?.clearComposition();
+        this.engineId = null;
+        this.context = null;
+        this.inputCache = [];
+        this.preeditEmpty = true;
         this.invalidateCandidateCache();
         this.sendCandidatesToInputView([]);
     }
@@ -369,6 +375,45 @@ export class InputController extends EventEmitter {
         });
     }
 
+    isInactiveImeError(error: unknown): boolean {
+        const message = typeof error === "string"
+            ? error
+            : error instanceof Error
+                ? error.message
+                : String(error ?? "");
+        return message.includes("IME is not active");
+    }
+
+    setCandidateWindowProperties(
+        engineId: string,
+        properties: chrome.input.ime.CandidateWindowParameterProperties
+    ): Promise<void> {
+        if (this.engineId !== engineId) return Promise.resolve();
+        return new Promise((res, rej) => {
+            try {
+                chrome.input.ime.setCandidateWindowProperties({
+                    engineID: engineId,
+                    properties,
+                }, (ok) => {
+                    const error = chrome.runtime.lastError;
+                    if (ok) {
+                        res();
+                    } else if (error && this.isInactiveImeError(error.message)) {
+                        res();
+                    } else {
+                        rej(error ? new Error(error.message) : new Error("setCandidateWindowProperties failed"));
+                    }
+                });
+            } catch (error) {
+                if (this.isInactiveImeError(error)) {
+                    res();
+                } else {
+                    rej(error);
+                }
+            }
+        });
+    }
+
 
     sendCandidatesToInputView(candidates: Array<{ candidate: string, ix: number }>) {
         this.emit("candidatesBack", candidates);
@@ -387,6 +432,7 @@ export class InputController extends EventEmitter {
         const promises: Array<Promise<void>> = [];
         if (this.session != null && !this.loadMutex.isLocked()) {
             const rimeContext = await this.session?.getContext();
+            if (this.engineId !== engineId) return;
             if (rimeContext) {
                 if (this.context != null) {
                     const c = {
@@ -403,20 +449,15 @@ export class InputController extends EventEmitter {
                 if (!this.inputViewVisible) {
                     // Virtual keyboard is not visible, candidiates are displayed in system candidate window
                     if (rimeContext.menu.candidates.length > 0) {
-                        promises.push(new Promise<void>((res, rej) => {
-                            chrome.input.ime.setCandidateWindowProperties({
-                                engineID: engineId,
-                                properties: {
-                                    visible: true,
-                                    cursorVisible: true,
-                                    auxiliaryTextVisible: true,
-                                    pageSize: rimeContext.menu.pageSize,
-                                    auxiliaryText: chrome.i18n.getMessage("candidate_page", (rimeContext.menu.pageNumber + 1).toString())
-                                        + (rimeContext.menu.isLastPage ? chrome.i18n.getMessage("candidate_page_last") : ""),
-                                    windowPosition: 'composition',
-                                    vertical: !this.activeSettings.horizontal
-                                }
-                            }, (ok) => ok ? res() : rej());
+                        promises.push(this.setCandidateWindowProperties(engineId, {
+                            visible: true,
+                            cursorVisible: true,
+                            auxiliaryTextVisible: true,
+                            pageSize: rimeContext.menu.pageSize,
+                            auxiliaryText: chrome.i18n.getMessage("candidate_page", (rimeContext.menu.pageNumber + 1).toString())
+                                + (rimeContext.menu.isLastPage ? chrome.i18n.getMessage("candidate_page_last") : ""),
+                            windowPosition: 'composition',
+                            vertical: !this.activeSettings.horizontal
                         }));
                         if (this.context != null) {
                             const contextId = this.context.contextID;
@@ -438,14 +479,7 @@ export class InputController extends EventEmitter {
                             }));
                         }
                     } else {
-                        promises.push(new Promise<void>((res, rej) => {
-                            chrome.input.ime.setCandidateWindowProperties({
-                                engineID: engineId,
-                                properties: {
-                                    visible: false,
-                                }
-                            }, (ok) => ok ? res() : rej());
-                        }));
+                        promises.push(this.setCandidateWindowProperties(engineId, { visible: false }));
                     }
                 } else {
                     // Virtual keyboard is visible, send candidates to display them in virtual keyboard
@@ -471,19 +505,14 @@ export class InputController extends EventEmitter {
                 }
                 if (!this.inputViewVisible) {
                     // Virtual keyboard is not visible, candidiates are displayed in system candidate window
-                    promises.push(new Promise<void>((res, rej) => {
-                        chrome.input.ime.setCandidateWindowProperties({
-                            engineID: engineId,
-                            properties: {
-                                visible: true,
-                                cursorVisible: false,
-                                auxiliaryTextVisible: true,
-                                pageSize: 1,
-                                auxiliaryText: chrome.i18n.getMessage("loading_engine"),
-                                windowPosition: 'composition',
-                                vertical: true
-                            }
-                        }, (ok) => ok ? res() : rej());
+                    promises.push(this.setCandidateWindowProperties(engineId, {
+                        visible: true,
+                        cursorVisible: false,
+                        auxiliaryTextVisible: true,
+                        pageSize: 1,
+                        auxiliaryText: chrome.i18n.getMessage("loading_engine"),
+                        windowPosition: 'composition',
+                        vertical: true
                     }));
                     if (this.context != null) {
                         const contextId = this.context.contextID;
@@ -506,12 +535,7 @@ export class InputController extends EventEmitter {
             }
         }
         if (this.inputViewVisible) {
-            chrome.input.ime.setCandidateWindowProperties({
-                engineID: engineId,
-                properties: {
-                    visible: false,
-                }
-            });
+            promises.push(this.setCandidateWindowProperties(engineId, { visible: false }));
         }
         await Promise.all(promises);
     }

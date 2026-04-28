@@ -125,6 +125,10 @@ export default defineBackground({
       refreshImeMenuItems();
     });
 
+    chrome.input.ime.onDeactivated.addListener((engineId) => {
+      self.controller.deactivate(engineId);
+    });
+
     // Rebuild menu when schemas are installed/removed or active setting changes elsewhere
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area === "local" && (changes.schemaList || changes.selfDefinedSchema)) {
@@ -175,14 +179,25 @@ export default defineBackground({
       if (port.name == "inputviewMessages") {
         console.log("InputView Port Connecting");
 
-        void self.controller?.session?.getOption("ascii_mode").then((asciiMode) => {
-          port.postMessage({ name: "init", msg: { asciiMode: asciiMode ?? false } });
+        let inputViewDisconnected = false;
+        const postToPort = (msg: object) => {
+          if (inputViewDisconnected) return;
+          try {
+            port.postMessage(msg);
+          } catch {
+            inputViewDisconnected = true;
+          }
+        };
+
+        void self.controller?.session?.getOption("ascii_mode").then((asciiMode: boolean | undefined) => {
+          postToPort({ name: "init", msg: { asciiMode: asciiMode ?? false } });
         }).catch(() => {
-          port.postMessage({ name: "init", msg: { asciiMode: false } });
+          postToPort({ name: "init", msg: { asciiMode: false } });
         });
 
         port.onMessage.addListener((msg) => {
           console.log("Message from inputview:", msg);
+          if (!msg || typeof msg !== "object") return;
           if (msg.name == "visibility_change") {
             self.controller.handleInputViewVisibilityChanged(msg.visibility);
           } else if (msg.name == "toggle_language_state") {
@@ -195,18 +210,18 @@ export default defineBackground({
         });
 
         const onToggleLanguageState = function (asciiMode: boolean) {
-          port.postMessage({ name: 'front_toggle_language_state', msg: !asciiMode });
+          postToPort({ name: 'front_toggle_language_state', msg: !asciiMode });
         }
 
         const onCandidatesBack = function (candidates: Array<{ candidate: string, ix: number }>) {
-          port.postMessage({ name: "candidates_back", msg: { source: "source", candidates } });
+          postToPort({ name: "candidates_back", msg: { source: "source", candidates } });
         }
 
         const onSchemaSwitched = function () {
-          void self.controller?.session?.getOption("ascii_mode").then((asciiMode) => {
-            port.postMessage({ name: "schema_switched", msg: { asciiMode: asciiMode ?? false } });
+          void self.controller?.session?.getOption("ascii_mode").then((asciiMode: boolean | undefined) => {
+            postToPort({ name: "schema_switched", msg: { asciiMode: asciiMode ?? false } });
           }).catch(() => {
-            port.postMessage({ name: "schema_switched", msg: { asciiMode: false } });
+            postToPort({ name: "schema_switched", msg: { asciiMode: false } });
           });
         }
 
@@ -216,6 +231,7 @@ export default defineBackground({
 
         port.onDisconnect.addListener(() => {
           console.log("InputView disconnected");
+          inputViewDisconnected = true;
           self.controller.removeListener("toggleLanguageState", onToggleLanguageState);
           self.controller.removeListener("candidatesBack", onCandidatesBack);
           self.controller.removeListener("schemaSwitched", onSchemaSwitched);

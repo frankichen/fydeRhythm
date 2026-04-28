@@ -10,6 +10,127 @@ var controller;
 const port = chrome.runtime.connect(null, {name: "inputviewMessages"});
 var currentVirtualKeyboardConfigKey = '';
 
+// --- Key event helpers ---
+// Kept at top level so the chrome.runtime.sendMessage override below can
+// reference them before registerInputviewApi() is called.
+
+// Flag values for ctrl, alt and shift as defined by EventFlags
+// in "event_constants.h".
+var Modifier = {
+  NONE: 0,
+  ALT: 8,
+  CONTROL: 4,
+  SHIFT: 2,
+  CAPSLOCK: 256
+};
+
+// Mapping from keyName to keyCode (see ui::KeyEvent).
+var nonAlphaNumericKeycodes = {
+  Backquote: 0xC0,
+  Backslash: 0xDC,
+  Backspace: 0x08,
+  BracketLeft: 0xDB,
+  BracketRight: 0xDD,
+  Comma: 0xBC,
+  Enter: 0x0D,
+  Period: 0xBE,
+  Quote: 0xBF,
+  Semicolon: 0xBA,
+  Slash: 0xBF,
+  Space: 0x20,
+  Tab: 0x09
+};
+
+function logIfError_() {
+  if (chrome.runtime.lastError) {
+    console.log(chrome.runtime.lastError);
+  }
+}
+
+function commitText_(text) {
+  chrome.virtualKeyboardPrivate.insertText(text);
+}
+
+/**
+ * Computes keyCodes for use with ui::KeyEvent.
+ * @param {string} keyChar Character being typed.
+ * @param {string} keyName w3c name of the character.
+ */
+function getKeyCode_(keyChar, keyName) {
+  var keyCode = nonAlphaNumericKeycodes[keyName];
+  if (keyCode)
+    return keyCode;
+
+  var match = /Key([A-Z])/.exec(keyName);
+  if (match)
+    return match[1].charCodeAt(0);
+
+  match = /Digit([0-9])/.exec(keyName);
+  if (match)
+    return match[1].charCodeAt(0);
+
+  if (keyChar.length == 1) {
+    if (keyChar >= 'a' && keyChar <= 'z')
+      return keyChar.charCodeAt(0) - 32;
+    if (keyChar >= 'A' && keyChar <= 'Z')
+      return keyChar.charCodeAt(0);
+    if (keyChar >= '0' && keyChar <= '9')
+      return keyChar.charCodeAt(0);
+  }
+  return 0;
+}
+
+/**
+ * Dispatches a virtual key event. The system VK does not use the IME
+ * API as its primary role is to work in conjunction with a non-VK aware
+ * IME. Some reformatting of the key data is required to work with the
+ * virtualKeyboardPrivate API.
+ * @param {!Object} keyData Description of the key event.
+ */
+function sendKeyEvent_(keyData) {
+  keyData.forEach(function(data) {
+    var charValue = data.key.length == 1 ? data.key.charCodeAt(0) : 0;
+    var keyCode = data.keyCode ? data.keyCode :
+        getKeyCode_(data.key, data.code);
+    var event = {
+      type: data.type,
+      charValue: charValue,
+      keyCode: keyCode,
+      keyName: data.code,
+      modifiers: Modifier.NONE
+    };
+    if (data.altKey)
+      event.modifiers |= Modifier.ALT;
+    if (data.ctrlKey)
+      event.modifiers |= Modifier.CONTROL;
+    if (data.shiftKey)
+      event.modifiers |= Modifier.SHIFT;
+    if (data.capsLock)
+      event.modifiers |= Modifier.CAPSLOCK;
+
+    chrome.virtualKeyboardPrivate.sendKeyEvent(event, logIfError_);
+  });
+}
+
+// Override chrome.runtime.sendMessage immediately (before inputview.js prototype
+// methods run) so all VK→background messages are intercepted and routed through
+// the port rather than reaching the extension background's chrome.runtime.onMessage
+// listeners (which expect the @webext-core/messaging wire format).
+chrome.runtime.sendMessage = function(message) {
+  if (message && message.name == 'send_key_event') {
+    sendKeyEvent_(message.keyData);
+  } else if (message && message.name == 'commit_text') {
+    commitText_(message.text);
+  } else {
+    try {
+      port.postMessage(message);
+    } catch (e) {
+      console.warn('inputview: port disconnected, dropping message', message && message.name);
+    }
+  }
+  return true;
+};
+
 // Coordination between port init message and window.onload.
 // Either can arrive first; maybeTriggerInit() starts the keyboard once both are ready.
 var _pendingName = null;
@@ -189,48 +310,6 @@ function switchVirtualKeyboard(config, name) {
 // Plug in for API calls.
 function registerInputviewApi() {
 
-  // Flag values for ctrl, alt and shift as defined by EventFlags
-  // in "event_constants.h".
-  // @enum {number}
-  var Modifier = {
-    NONE: 0,
-    ALT: 8,
-    CONTROL: 4,
-    SHIFT: 2,
-    CAPSLOCK: 256
-  };
-
-  // Mapping from keyName to keyCode (see ui::KeyEvent).
-  var nonAlphaNumericKeycodes = {
-    Backquote: 0xC0,
-    Backslash: 0xDC,
-    Backspace: 0x08,
-    BracketLeft: 0xDB,
-    BracketRight: 0xDD,
-    Comma: 0xBC,
-    Enter: 0x0D,
-    Period: 0xBE,
-    Quote: 0xBF,
-    Semicolon: 0xBA,
-    Slash: 0xBF,
-    Space: 0x20,
-    Tab: 0x09
-  };
-
-  /**
-   * Displays a console message containing the last runtime error.
-   * @private
-   */
-  function logIfError_() {
-    if (chrome.runtime.lastError) {
-      console.log(chrome.runtime.lastError);
-    }
-  }
-
-  function commitText_(text) {
-    chrome.virtualKeyboardPrivate.insertText(text);
-  }
-
   /**
    * Retrieve the preferred keyboard configuration.
    * @param {function} callback The callback function for processing the
@@ -318,68 +397,7 @@ function registerInputviewApi() {
     chrome.virtualKeyboardPrivate.openSettings();
   }
 
-  /**
-   * Dispatches a virtual key event. The system VK does not use the IME
-   * API as its primary role is to work in conjunction with a non-VK aware
-   * IME. Some reformatting of the key data is required to work with the
-   * virtualKeyboardPrivate API.
-   * @param {!Object} keyData Description of the key event.
-   */
-  function sendKeyEvent_(keyData) {
-    keyData.forEach(function(data) {
-      var charValue = data.key.length == 1 ? data.key.charCodeAt(0) : 0;
-      var keyCode = data.keyCode ? data.keyCode :
-          getKeyCode_(data.key, data.code);
-      var event = {
-        type: data.type,
-        charValue: charValue,
-        keyCode: keyCode,
-        keyName: data.code,
-        modifiers: Modifier.NONE
-      };
-      if (data.altKey)
-        event.modifiers |= Modifier.ALT;
-      if (data.ctrlKey)
-        event.modifiers |= Modifier.CONTROL;
-      if (data.shiftKey)
-        event.modifiers |= Modifier.SHIFT;
-      if (data.capsLock)
-        event.modifiers |= Modifier.CAPSLOCK;
-
-      chrome.virtualKeyboardPrivate.sendKeyEvent(event, logIfError_);
-    });
-  }
-
   function setState (state) {
-  }
-
-  /**
-   * Computes keyCodes for use with ui::KeyEvent.
-   * @param {string} keyChar Character being typed.
-   * @param {string} keyName w3c name of the character.
-   */
-  function getKeyCode_(keyChar, keyName) {
-    var keyCode = nonAlphaNumericKeycodes[keyName];
-    if (keyCode)
-      return keyCode;
-
-    var match = /Key([A-Z])/.exec(keyName);
-    if (match)
-      return match[1].charCodeAt(0);
-
-    match = /Digit([0-9])/.exec(keyName);
-    if (match)
-      return match[1].charCodeAt(0);
-
-    if (keyChar.length == 1) {
-      if (keyChar >= 'a' && keyChar <= 'z')
-        return keyChar.charCodeAt(0) - 32;
-      if (keyChar >= 'A' && keyChar <= 'Z')
-        return keyChar.charCodeAt(0);
-      if (keyChar >= '0' && keyChar <= '9')
-        return keyChar.charCodeAt(0);
-    }
-    return 0;
   }
 
   function setMode_(mode) {
@@ -396,7 +414,7 @@ function registerInputviewApi() {
     switchToInputMethod: switchToInputMethod_,
     getDisplayInInches: getDisplayInInches_,
     openSettings: openSettings_,
-    setMode: setMode_,    
+    setMode: setMode_,
   };
 
   registerFunction('chrome.input.ime.hideInputView', function() {
@@ -404,16 +422,7 @@ function registerInputviewApi() {
     chrome.virtualKeyboardPrivate.lockKeyboard(false);
   });
 
-  registerFunction('chrome.runtime.sendMessage', function(message) {
-    if (message.name == 'send_key_event') {
-      sendKeyEvent_(message.keyData);
-    } else if (message.name == 'commit_text') {
-      commitText_(message.text);
-    } else {
-      port.postMessage(message);
-    }
-    return true;
-  });
+  // chrome.runtime.sendMessage is already overridden at the top of this file.
 }
 
 if (!chrome.i18n) {
@@ -482,7 +491,7 @@ window.initializeVirtualKeyboard = function(keyset, languageCode, passwordLayout
   // set candidatesNavigation as default
   i18n.input.chrome.inputview.Settings.prototype.candidatesNavigation = true;
   i18n.input.chrome.inputview.elements.content.CandidateView.prototype.navigation_ = true;
-  
+
   if (controller) {
     controller.initialize(keyset, languageCode, passwordLayout, name);
   }
