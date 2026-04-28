@@ -220,11 +220,14 @@ describe('InputController schema switching', () => {
     it('records the last successfully loaded schema', async () => {
         stubChrome(settings({ schema: 'aurora' }));
         const controller = new InputController();
+        const schemaSwitched = vi.fn();
+        controller.addListener('schemaSwitched', schemaSwitched);
         vi.spyOn(controller, 'loadRimeConfig').mockResolvedValue('schema: aurora\n');
 
         await expect(controller.loadRime(false)).resolves.toBe(true);
 
         expect(controller.lastSuccessfulSchema).toBe('aurora');
+        expect(schemaSwitched).toHaveBeenCalledWith('aurora');
     });
 
     it('falls back to the last successfully loaded schema when a later schema fails', async () => {

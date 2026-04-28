@@ -8,6 +8,41 @@ var CLOSURE_NO_DEPS=true;
 
 var controller;
 const port = chrome.runtime.connect(null, {name: "inputviewMessages"});
+var currentVirtualKeyboardConfigKey = '';
+
+// Coordination between port init message and window.onload.
+// Either can arrive first; maybeTriggerInit() starts the keyboard once both are ready.
+var _pendingName = null;
+var _pendingVk = null;
+
+function maybeTriggerInit() {
+  if (_pendingName === null || _pendingVk === null) return;
+  var vk = _pendingVk;
+  var name = _pendingName;
+  _pendingVk = null;
+  overrideSwitchToKeyset();
+  overrideGetSpatialData();
+  registerInputviewApi();
+  i18n.input.chrome.inputview.Controller.DEV = true;
+  i18n.input.chrome.inputview.Adapter.prototype.isSwitching = function() { return false; };
+  switchVirtualKeyboard(vk, name);
+}
+
+port.onMessage.addListener(function(msg) {
+  console.log("Got message from background: ", msg);
+  if (msg.name == 'init') {
+    _pendingVk = getVirtualKeyboardConfig(msg.msg && msg.msg.asciiMode);
+    maybeTriggerInit();
+    return;
+  }
+  if (msg.name == 'schema_switched') {
+    switchVirtualKeyboard(getVirtualKeyboardConfig(msg.msg && msg.msg.asciiMode), _pendingName);
+    return;
+  }
+  if (controller && controller.adapter_) {
+    controller.adapter_.onMessage_(msg, null, null);
+  }
+});
 
 /**
  * Armed callback to be triggered when a keyset changes.
@@ -132,6 +167,23 @@ function overrideGetSpatialData() {
 function getDefaultUsLayout() {
   return window.localStorage['vkDefaultLayoutIsFull']
       ? 'us' : 'us.compact.qwerty';
+}
+
+function getVirtualKeyboardConfig(asciiMode) {
+  return {
+    keyset: asciiMode ? 'pinyin-zh-CN.en.compact.qwerty' : 'pinyin-zh-CN.compact.qwerty',
+    languageCode: 'zh-CN',
+    passwordLayout: 'pinyin-zh-CN.en.compact.qwerty'
+  };
+}
+
+function switchVirtualKeyboard(config, name) {
+  var configKey = config.keyset + '|' + config.languageCode + '|' + config.passwordLayout;
+  if (controller && currentVirtualKeyboardConfigKey == configKey) {
+    return;
+  }
+  currentVirtualKeyboardConfigKey = configKey;
+  window.initializeVirtualKeyboard(config.keyset, config.languageCode, config.passwordLayout, name);
 }
 
 // Plug in for API calls.
@@ -390,22 +442,8 @@ window.onload = function() {
     window.resizeTo(window.screen.width, 372);
     window.moveTo(0, window.screen.height - 372);
 
-    chrome.runtime.sendMessage({name: "GetAsciiMode"}, function(resp) {
-      var keyset = resp.asciiMode ? "pinyin-zh-CN.en.compact.qwerty" : "pinyin-zh-CN.compact.qwerty";
-      var languageCode = 'zh-CN';
-      var passwordLayout = 'pinyin-zh-CN.en.compact.qwerty';
-      var name = params['inputmethod_pinyin'];
-    
-      overrideSwitchToKeyset();
-      overrideGetSpatialData();
-      registerInputviewApi();
-      i18n.input.chrome.inputview.Controller.DEV = true;
-      i18n.input.chrome.inputview.Adapter.prototype.isSwitching = function() {
-        return false;
-      };
-
-      window.initializeVirtualKeyboard(keyset, languageCode, passwordLayout, name);
-    });
+    _pendingName = params['inputmethod_pinyin'];
+    maybeTriggerInit();
   });
 };
 
@@ -451,9 +489,4 @@ window.initializeVirtualKeyboard = function(keyset, languageCode, passwordLayout
   else {
     controller = new Controller(keyset, languageCode, passwordLayout, name);
   }
-
-  port.onMessage.addListener((msg) => {
-    console.log("Got message from background: ", msg);
-    controller.adapter_.onMessage_(msg, null, null);
-  });
 };

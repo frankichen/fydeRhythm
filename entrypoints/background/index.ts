@@ -4,7 +4,6 @@ import { InputController } from "./controller";
 import { serviceWorkerKeepalive } from "./keepalive";
 import { onMessage } from "@/lib/messaging";
 import { listEnabledInstalledSchemas } from "./schemas";
-
 async function buildSchemaMenuItems(activeSchema: string, enabledSchemas?: string[]): Promise<chrome.input.ime.MenuItem[]> {
   const list = await listEnabledInstalledSchemas(activeSchema, enabledSchemas);
   return list.map((entry) => ({
@@ -151,7 +150,7 @@ export default defineBackground({
 
     onMessage('GetAsciiMode', async () => {
       try {
-        const asciiMode = await self.controller.session?.getOption("ascii_mode");
+        const asciiMode = await self.controller.session?.getOption("ascii_mode") ?? false;
         return { asciiMode };
       } catch (ex) {
         console.error("Error while getting ascii mode", ex);
@@ -176,6 +175,12 @@ export default defineBackground({
       if (port.name == "inputviewMessages") {
         console.log("InputView Port Connecting");
 
+        void self.controller?.session?.getOption("ascii_mode").then((asciiMode) => {
+          port.postMessage({ name: "init", msg: { asciiMode: asciiMode ?? false } });
+        }).catch(() => {
+          port.postMessage({ name: "init", msg: { asciiMode: false } });
+        });
+
         port.onMessage.addListener((msg) => {
           console.log("Message from inputview:", msg);
           if (msg.name == "visibility_change") {
@@ -197,13 +202,23 @@ export default defineBackground({
           port.postMessage({ name: "candidates_back", msg: { source: "source", candidates } });
         }
 
+        const onSchemaSwitched = function () {
+          void self.controller?.session?.getOption("ascii_mode").then((asciiMode) => {
+            port.postMessage({ name: "schema_switched", msg: { asciiMode: asciiMode ?? false } });
+          }).catch(() => {
+            port.postMessage({ name: "schema_switched", msg: { asciiMode: false } });
+          });
+        }
+
         self.controller.addListener("toggleLanguageState", onToggleLanguageState);
         self.controller.addListener("candidatesBack", onCandidatesBack);
+        self.controller.addListener("schemaSwitched", onSchemaSwitched);
 
         port.onDisconnect.addListener(() => {
           console.log("InputView disconnected");
           self.controller.removeListener("toggleLanguageState", onToggleLanguageState);
           self.controller.removeListener("candidatesBack", onCandidatesBack);
+          self.controller.removeListener("schemaSwitched", onSchemaSwitched);
           self.controller.handleInputViewVisibilityChanged(false);
         });
       }
