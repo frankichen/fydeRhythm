@@ -32,6 +32,14 @@ function file(path: string): Entry {
     };
 }
 
+function installedSchema(id: string): Entry[] {
+    return [
+        directory(`/root/${id}`),
+        directory(`/root/${id}/build`),
+        file(`/root/${id}/build/${id}.schema.yaml`),
+    ];
+}
+
 function stubSchemaCatalog(schemas: Array<{ id: string; name?: string }> = []) {
     const get = vi.fn(async () => ({ schemaList: { schemas } }));
     vi.stubGlobal('chrome', {
@@ -51,8 +59,8 @@ describe('enabled installed schemas', () => {
 
     it('lists installed schemas in catalog order with catalog labels', async () => {
         mocks.entries = [
-            directory('/root/luna'),
-            directory('/root/aurora'),
+            ...installedSchema('luna'),
+            ...installedSchema('aurora'),
             directory('/root'),
             file('/root/not-a-schema/file.txt'),
         ];
@@ -69,8 +77,8 @@ describe('enabled installed schemas', () => {
 
     it('synthesizes labels for installed schemas missing from the catalog', async () => {
         mocks.entries = [
-            directory('/root/catalogued'),
-            directory('/root/imported_zip'),
+            ...installedSchema('catalogued'),
+            ...installedSchema('imported_zip'),
         ];
         stubSchemaCatalog([{ id: 'catalogued', name: 'Catalogued Schema' }]);
 
@@ -82,9 +90,9 @@ describe('enabled installed schemas', () => {
 
     it('filters to enabled schemas while always including the active schema', async () => {
         mocks.entries = [
-            directory('/root/active'),
-            directory('/root/enabled'),
-            directory('/root/disabled'),
+            ...installedSchema('active'),
+            ...installedSchema('enabled'),
+            ...installedSchema('disabled'),
         ];
         stubSchemaCatalog([
             { id: 'active', name: 'Active' },
@@ -100,10 +108,11 @@ describe('enabled installed schemas', () => {
 
     it('ignores non-schema entries under /root and enabled schemas that are not installed', async () => {
         mocks.entries = [
-            directory('/root/installed'),
-            directory('/root/installed/build'),
+            ...installedSchema('installed'),
             file('/root/file.schema.yaml'),
             directory('/not-root/other'),
+            directory('/not-root/other/build'),
+            file('/not-root/other/build/other.schema.yaml'),
         ];
         stubSchemaCatalog([
             { id: 'installed', name: 'Installed' },
@@ -117,9 +126,9 @@ describe('enabled installed schemas', () => {
 
     it('returns all installed schemas when enabledSchemas is undefined (legacy mode)', async () => {
         mocks.entries = [
-            directory('/root/aurora'),
-            directory('/root/luna'),
-            directory('/root/rime_ice'),
+            ...installedSchema('aurora'),
+            ...installedSchema('luna'),
+            ...installedSchema('rime_ice'),
         ];
         stubSchemaCatalog([
             { id: 'aurora', name: 'Aurora' },
@@ -136,7 +145,7 @@ describe('enabled installed schemas', () => {
     });
 
     it('uses the schema id as label when the catalog entry has no name', async () => {
-        mocks.entries = [directory('/root/noname')];
+        mocks.entries = installedSchema('noname');
         stubSchemaCatalog([{ id: 'noname' }]);
 
         await expect(listEnabledInstalledSchemas('noname')).resolves.toEqual([
@@ -144,8 +153,28 @@ describe('enabled installed schemas', () => {
         ]);
     });
 
+    it('ignores legacy v2 top-level directories left over after upgrading', async () => {
+        // v2 stored a single Rime tree at /root/{build,shared,user}. After an
+        // in-place upgrade to v3 those dirs would otherwise surface as ghost
+        // schemas named "build", "shared", "user".
+        mocks.entries = [
+            directory('/root/build'),
+            file('/root/build/luna.schema.yaml'),
+            directory('/root/shared'),
+            directory('/root/user'),
+            ...installedSchema('luna'),
+        ];
+        stubSchemaCatalog([
+            { id: 'luna', name: 'Luna' },
+        ]);
+
+        await expect(listEnabledInstalledSchemas('luna')).resolves.toEqual([
+            { id: 'luna', label: 'Luna' },
+        ]);
+    });
+
     it('returns uncatalogued installed schemas when schemaList is absent from storage', async () => {
-        mocks.entries = [directory('/root/imported')];
+        mocks.entries = installedSchema('imported');
         vi.stubGlobal('chrome', {
             storage: {
                 local: { get: vi.fn(async () => ({})) },
@@ -155,5 +184,15 @@ describe('enabled installed schemas', () => {
         await expect(listEnabledInstalledSchemas('imported')).resolves.toEqual([
             { id: 'imported', label: 'imported' },
         ]);
+    });
+
+    it('ignores v3 schema directories until their schema YAML marker exists', async () => {
+        mocks.entries = [
+            directory('/root/partial'),
+            directory('/root/partial/build'),
+        ];
+        stubSchemaCatalog([{ id: 'partial', name: 'Partial' }]);
+
+        await expect(listEnabledInstalledSchemas('partial')).resolves.toEqual([]);
     });
 });

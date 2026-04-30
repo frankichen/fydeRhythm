@@ -1,4 +1,5 @@
 import { getFs } from "@/lib/utils";
+import { getInstalledSchemaIds } from "@/lib/schema-install";
 
 interface SchemaMetadata {
   id: string;
@@ -18,12 +19,7 @@ export async function listEnabledInstalledSchemas(
 ): Promise<EnabledSchemaEntry[]> {
   const fs = await getFs();
   const entries = await fs.readAll();
-  const schemaDirRegex = /^\/root\/([^/]+)$/;
-  const installed = new Set<string>(
-    entries
-      .filter((e: any) => e.isDirectory && schemaDirRegex.test(e.fullPath))
-      .map((e: any) => e.fullPath.match(schemaDirRegex)[1])
-  );
+  const installed = new Set<string>(getInstalledSchemaIds(entries));
 
   // Legacy (undefined) = all installed are enabled. Active schema is always implicitly enabled.
   const enabledSet = enabledSchemas

@@ -4,6 +4,7 @@ import { InputController } from "./controller";
 import { serviceWorkerKeepalive } from "./keepalive";
 import { onMessage } from "@/lib/messaging";
 import { listEnabledInstalledSchemas } from "./schemas";
+import { resolveInstalledSchemaId } from "@/lib/schema-install";
 async function buildSchemaMenuItems(activeSchema: string, enabledSchemas?: string[]): Promise<chrome.input.ime.MenuItem[]> {
   const list = await listEnabledInstalledSchemas(activeSchema, enabledSchemas);
   return list.map((entry) => ({
@@ -28,6 +29,26 @@ async function refreshImeMenuItems() {
   } catch (ex) {
     console.error("setMenuItems failed:", ex);
   }
+}
+
+async function resolveStartupSettings(settings: ImeSettings): Promise<ImeSettings | null> {
+  const fs = await getFs();
+  const schema = resolveInstalledSchemaId(
+    await fs.readAll(),
+    settings.schema,
+    settings.enabledSchemas,
+  );
+  if (!schema) {
+    return null;
+  }
+  if (schema === settings.schema) {
+    return settings;
+  }
+
+  const next = { ...settings, schema };
+  console.warn(`Configured schema "${settings.schema}" is not installed in the v3 layout; using "${schema}" instead.`);
+  await chrome.storage.sync.set({ settings: next });
+  return next;
 }
 
 export default defineBackground({
@@ -104,8 +125,11 @@ export default defineBackground({
     chrome.storage.sync.get(["settings"]).then(async (obj) => {
       // Only load engine if settings exists
       if (obj.settings) {
-        const ok = await self.controller.loadRime(false);
-        rimeLoaded = ok;
+        const settings = await resolveStartupSettings(obj.settings as ImeSettings);
+        if (settings) {
+          const ok = await self.controller.loadRime(false);
+          rimeLoaded = ok;
+        }
       }
     }).catch((e) => {
       console.error('load settings error', e);

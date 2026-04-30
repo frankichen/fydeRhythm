@@ -36,6 +36,7 @@ import FileEditorButton from "./fileEditor";
 import RimeLogDisplay from "./rimeLogDisplay";
 import { $$, getFs, type ImeSettings, kDefaultSettings } from "@/lib/utils";
 import { detectSchemaInZip, importSchemaFromZip } from "@/lib/import-schema";
+import { getInstalledSchemaIds } from "@/lib/schema-install";
 import { sendMessage } from "@/lib/messaging";
 import Link from "@mui/material/Link";
 
@@ -144,12 +145,7 @@ function OptionsPage() {
     async function loadLocalSchemaList(): Promise<string[]> {
         const fs = await getFs();
         const content = await fs.readAll();
-        // Recognize schemas by directory name under /root/
-        const schemaDirRegex = /^\/root\/([^/]+)$/;
-        const list = content
-            .filter(c => c.isDirectory && schemaDirRegex.test(c.fullPath))
-            .map(c => schemaDirRegex.exec(c.fullPath)?.[1])
-            .filter((schemaId): schemaId is string => schemaId != null);
+        const list = getInstalledSchemaIds(content);
         setLocalSchemaList(list);
         console.log("Local schema list:", list);
         return list;
