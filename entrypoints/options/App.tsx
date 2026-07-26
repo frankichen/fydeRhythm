@@ -34,6 +34,7 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import Animation from "./utils/animation";
 import FileEditorButton from "./fileEditor";
 import RimeLogDisplay from "./rimeLogDisplay";
+import DeepSeekSettingsPanel from "./DeepSeekSettingsPanel";
 import { $$, getFs, type ImeSettings, kDefaultSettings } from "@/lib/utils";
 import { detectSchemaInZip, importSchemaFromZip } from "@/lib/import-schema";
 import { getInstalledSchemaIds } from "@/lib/schema-install";
@@ -1026,6 +1027,8 @@ function OptionsPage() {
                     </FormControl>
                 </div>
             </div>}
+
+            <DeepSeekSettingsPanel />
 
             <div className={styles.formGroup}>
                 <div className={styles.formBox}>
