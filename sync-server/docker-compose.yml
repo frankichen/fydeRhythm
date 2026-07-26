@@ -1,6 +1,8 @@
 services:
   sync-server:
-    build: .
+    build:
+      context: .
+      network: host
     container_name: fyderhythm-sync
     restart: unless-stopped
     init: true
