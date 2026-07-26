@@ -23,6 +23,8 @@ var (
 	ErrNotFound      = errors.New("not found")
 )
 
+const maxClientClockSkew = 10 * time.Minute
+
 type Store struct {
 	db *sql.DB
 }
@@ -73,8 +75,9 @@ func (s *Store) Close() error { return s.db.Close() }
 func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
 
 func (s *Store) Push(ctx context.Context, req PushRequest) (PushResult, error) {
-	if strings.TrimSpace(req.DeviceID) == "" {
-		return PushResult{}, fmt.Errorf("%w: device_id is required", ErrInvalidChange)
+	req.DeviceID = strings.TrimSpace(req.DeviceID)
+	if req.DeviceID == "" || len(req.DeviceID) > 128 {
+		return PushResult{}, fmt.Errorf("%w: device_id is required and must be at most 128 characters", ErrInvalidChange)
 	}
 	if len(req.Changes) > 500 {
 		return PushResult{}, fmt.Errorf("%w: at most 500 changes per push", ErrInvalidChange)
@@ -93,8 +96,9 @@ func (s *Store) Push(ctx context.Context, req PushRequest) (PushResult, error) {
 
 	result := PushResult{Rejected: make([]RejectedChange, 0)}
 	for _, change := range req.Changes {
-		if strings.TrimSpace(change.ChangeID) == "" {
-			result.Rejected = append(result.Rejected, RejectedChange{Reason: "change_id is required"})
+		change.ChangeID = strings.TrimSpace(change.ChangeID)
+		if change.ChangeID == "" || len(change.ChangeID) > 128 {
+			result.Rejected = append(result.Rejected, RejectedChange{ChangeID: change.ChangeID, Reason: "change_id is required and must be at most 128 characters"})
 			continue
 		}
 		duplicate, err := changeAlreadyApplied(ctx, tx, change.ChangeID)
@@ -176,9 +180,7 @@ func changeAlreadyApplied(ctx context.Context, tx *sql.Tx, changeID string) (boo
 func applyChange(ctx context.Context, tx *sql.Tx, deviceID string, change Change, now int64) (applied bool, conflict bool, normalized any, entityKey string, err error) {
 	change.Entity = strings.TrimSpace(change.Entity)
 	change.Operation = strings.TrimSpace(change.Operation)
-	if change.ClientUpdatedAt <= 0 {
-		change.ClientUpdatedAt = now
-	}
+	change.ClientUpdatedAt = normalizeClientUpdatedAt(change.ClientUpdatedAt, now)
 
 	switch change.Entity {
 	case "lexicon":
@@ -194,6 +196,13 @@ func applyChange(ctx context.Context, tx *sql.Tx, deviceID string, change Change
 	default:
 		return false, false, nil, "", fmt.Errorf("%w: unsupported entity %q", ErrInvalidChange, change.Entity)
 	}
+}
+
+func normalizeClientUpdatedAt(value, now int64) int64 {
+	if value <= 0 || value > now+maxClientClockSkew.Milliseconds() {
+		return now
+	}
+	return value
 }
 
 func applyLexicon(ctx context.Context, tx *sql.Tx, deviceID string, change Change, now int64) (bool, bool, any, string, error) {
@@ -636,12 +645,17 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 }
 
 func (s *Store) Snapshot(ctx context.Context) (Snapshot, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return Snapshot{}, err
+	}
+	defer tx.Rollback()
 	out := Snapshot{GeneratedAt: time.Now().UnixMilli()}
-	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM sync_log`).Scan(&out.Cursor); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM sync_log`).Scan(&out.Cursor); err != nil {
 		return Snapshot{}, err
 	}
 
-	lexiconRows, err := s.db.QueryContext(ctx, `
+	lexiconRows, err := tx.QueryContext(ctx, `
 		SELECT id, phrase, code, shortcut, weight, category, notes, deleted,
 		       client_updated_at, source_device_id, server_updated_at, version
 		FROM lexicon ORDER BY phrase ASC`)
@@ -664,7 +678,7 @@ func (s *Store) Snapshot(ctx context.Context) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 
-	usageRows, err := s.db.QueryContext(ctx, `SELECT code, candidate, count, last_used_at FROM candidate_usage ORDER BY code, candidate`)
+	usageRows, err := tx.QueryContext(ctx, `SELECT code, candidate, count, last_used_at FROM candidate_usage ORDER BY code, candidate`)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -680,7 +694,7 @@ func (s *Store) Snapshot(ctx context.Context) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 
-	correctionRows, err := s.db.QueryContext(ctx, `SELECT original, corrected, count, last_used_at FROM corrections ORDER BY original, corrected`)
+	correctionRows, err := tx.QueryContext(ctx, `SELECT original, corrected, count, last_used_at FROM corrections ORDER BY original, corrected`)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -696,7 +710,7 @@ func (s *Store) Snapshot(ctx context.Context) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 
-	feedbackRows, err := s.db.QueryContext(ctx, `SELECT feature, context_hash, accepted_count, rejected_count, last_used_at FROM ai_feedback ORDER BY feature, context_hash`)
+	feedbackRows, err := tx.QueryContext(ctx, `SELECT feature, context_hash, accepted_count, rejected_count, last_used_at FROM ai_feedback ORDER BY feature, context_hash`)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -712,10 +726,27 @@ func (s *Store) Snapshot(ctx context.Context) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 
-	settings, err := s.ListSettings(ctx, true)
+	settingsRows, err := tx.QueryContext(ctx, `SELECT key, value_json, deleted, client_updated_at, source_device_id, server_updated_at, version FROM settings ORDER BY key ASC`)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	out.Settings = settings
+	for settingsRows.Next() {
+		var item Setting
+		var value string
+		var deleted int
+		if err := settingsRows.Scan(&item.Key, &value, &deleted, &item.ClientUpdatedAt, &item.SourceDeviceID, &item.ServerUpdatedAt, &item.Version); err != nil {
+			settingsRows.Close()
+			return Snapshot{}, err
+		}
+		item.Value = json.RawMessage(value)
+		item.Deleted = deleted != 0
+		out.Settings = append(out.Settings, item)
+	}
+	if err := settingsRows.Close(); err != nil {
+		return Snapshot{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Snapshot{}, err
+	}
 	return out, nil
 }
