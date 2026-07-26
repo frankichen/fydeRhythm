@@ -422,7 +422,6 @@ export class InputController extends EventEmitter {
         if (this.session != null && !this.loadMutex.isLocked()) {
             const rimeContext = await this.session?.getContext();
             if (this.engineId !== engineId) return;
-            if (rimeContext) {
                 if (this.context != null) {
                     const c = {
                         contextID: this.context.contextID,
