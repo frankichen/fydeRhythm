@@ -42,7 +42,8 @@ func main() {
 
 	server := &http.Server{
 		Addr: cfg.ListenAddr, Handler: router,
-		ReadTimeout: cfg.ReadTimeout, WriteTimeout: cfg.WriteTimeout, IdleTimeout: cfg.IdleTimeout,
+		ReadTimeout: cfg.ReadTimeout, ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+		WriteTimeout: cfg.WriteTimeout, IdleTimeout: cfg.IdleTimeout,
 	}
 
 	go func() {

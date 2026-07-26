@@ -10,28 +10,30 @@ import (
 )
 
 type Config struct {
-	ListenAddr    string
-	DatabasePath  string
-	APIToken      string
-	CORSOrigins   []string
-	MaxBodyBytes  int64
-	ReadTimeout   time.Duration
-	WriteTimeout  time.Duration
-	IdleTimeout   time.Duration
-	ShutdownGrace time.Duration
+	ListenAddr        string
+	DatabasePath      string
+	APIToken          string
+	CORSOrigins       []string
+	MaxBodyBytes      int64
+	ReadTimeout       time.Duration
+	ReadHeaderTimeout time.Duration
+	WriteTimeout      time.Duration
+	IdleTimeout       time.Duration
+	ShutdownGrace     time.Duration
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		ListenAddr:    env("LISTEN_ADDR", ":8080"),
-		DatabasePath:  env("DATABASE_PATH", "./data/fyderhythm-sync.db"),
-		APIToken:      strings.TrimSpace(os.Getenv("API_TOKEN")),
-		CORSOrigins:   splitCSV(env("CORS_ORIGINS", "chrome-extension://*,http://localhost:*,http://127.0.0.1:*")),
-		MaxBodyBytes:  2 << 20,
-		ReadTimeout:   15 * time.Second,
-		WriteTimeout:  30 * time.Second,
-		IdleTimeout:   60 * time.Second,
-		ShutdownGrace: 10 * time.Second,
+		ListenAddr:        env("LISTEN_ADDR", ":8080"),
+		DatabasePath:      env("DATABASE_PATH", "./data/fyderhythm-sync.db"),
+		APIToken:          strings.TrimSpace(os.Getenv("API_TOKEN")),
+		CORSOrigins:       splitCSV(env("CORS_ORIGINS", "chrome-extension://*,http://localhost:*,http://127.0.0.1:*")),
+		MaxBodyBytes:      2 << 20,
+		ReadTimeout:       15 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		ShutdownGrace:     10 * time.Second,
 	}
 
 	var err error

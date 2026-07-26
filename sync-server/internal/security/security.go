@@ -35,7 +35,6 @@ func CORS(allowed []string) gin.HandlerFunc {
 		if origin != "" && originAllowed(origin, allowed) {
 			c.Header("Access-Control-Allow-Origin", origin)
 			c.Header("Vary", "Origin")
-			c.Header("Access-Control-Allow-Credentials", "false")
 			c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Device-ID, X-Request-ID")
 			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			c.Header("Access-Control-Max-Age", "600")
@@ -48,6 +47,14 @@ func CORS(allowed []string) gin.HandlerFunc {
 			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
+		c.Next()
+	}
+}
+
+func APIHeaders() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		c.Header("X-Content-Type-Options", "nosniff")
 		c.Next()
 	}
 }

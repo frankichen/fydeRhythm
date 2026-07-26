@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
@@ -48,7 +49,7 @@ func New(opts Options) (*gin.Engine, error) {
 	r.GET("/healthz", s.health)
 
 	api := r.Group("/api/v1")
-	api.Use(security.BearerAuth(opts.APIToken), s.limitBody())
+	api.Use(security.BearerAuth(opts.APIToken), security.APIHeaders(), s.limitBody())
 	{
 		api.POST("/sync/push", s.push)
 		api.GET("/sync/pull", s.pull)
@@ -251,7 +252,7 @@ func (s *Server) writeLexicon(c *gin.Context, input lexiconInput, operation stri
 }
 
 func (s *Server) exportLexicon(c *gin.Context) {
-	entries, err := s.store.ListLexicon(c.Request.Context(), "", "", boolQuery(c, "include_deleted"), 1000, 0)
+	entries, err := s.listAllLexicon(c.Request.Context(), boolQuery(c, "include_deleted"))
 	if err != nil {
 		internalError(c, err)
 		return
@@ -281,6 +282,23 @@ func (s *Server) exportLexicon(c *gin.Context) {
 	}
 }
 
+func (s *Server) listAllLexicon(ctx context.Context, includeDeleted bool) ([]store.LexiconEntry, error) {
+	const pageSize = 1000
+	entries := make([]store.LexiconEntry, 0, pageSize)
+	for offset := 0; ; offset += pageSize {
+		page, err := s.store.ListLexicon(ctx, "", "", includeDeleted, pageSize, offset)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, page...)
+		if len(page) < pageSize {
+			return entries, nil
+		}
+		if len(entries) >= 100000 {
+			return nil, errors.New("lexicon export exceeds 100000 entries")
+		}
+	}
+}
 func (s *Server) importLexicon(c *gin.Context) {
 	deviceID, ok := requireDeviceID(c)
 	if !ok {
