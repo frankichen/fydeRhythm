@@ -572,7 +572,6 @@ export class InputController extends EventEmitter {
                 return true;
             })();
         }
-        if (this.session) {
             const session = this.session;
             let mask = 0;
             if (keyData.altKey)
