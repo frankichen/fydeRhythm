@@ -117,3 +117,36 @@ func TestUsageDeltasAreAdditiveAndIdempotent(t *testing.T) {
 		t.Fatalf("unexpected usage aggregate: %+v", stats.TopCandidates)
 	}
 }
+
+func TestSnapshotCursorDoesNotReplayIncludedData(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	changes := []Change{
+		{ChangeID: "snapshot-lexicon", Entity: "lexicon", Operation: "upsert", ClientUpdatedAt: 1000, Payload: raw(t, LexiconEntry{ID: "entry-1", Phrase: "个人词库"})},
+		{ChangeID: "snapshot-usage", Entity: "candidate_usage", Operation: "increment", ClientUpdatedAt: 1000, Payload: raw(t, map[string]any{
+			"code": "abcd", "candidate": "个人词库", "delta": int64(2), "last_used_at": int64(1000),
+		})},
+	}
+	if _, err := s.Push(ctx, PushRequest{DeviceID: "snapshot-device", Changes: changes}); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := s.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Cursor != 2 || len(snapshot.Lexicon) != 1 || len(snapshot.CandidateUsage) != 1 {
+		t.Fatalf("unexpected snapshot: %+v", snapshot)
+	}
+	if snapshot.CandidateUsage[0].Count != 2 {
+		t.Fatalf("unexpected usage count: %+v", snapshot.CandidateUsage)
+	}
+
+	pulled, err := s.Pull(ctx, snapshot.Cursor, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pulled.Changes) != 0 || pulled.Cursor != snapshot.Cursor {
+		t.Fatalf("snapshot cursor replayed included data: %+v", pulled)
+	}
+}
