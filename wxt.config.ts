@@ -14,7 +14,7 @@ export default defineConfig({
     name: '__MSG_extension_name__',
     description: '__MSG_description__',
     default_locale: 'zh_CN',
-    version: '3.0.1',
+    version: '3.0.2',
     author: 'fydeos',
 
     icons: {
@@ -37,17 +37,19 @@ export default defineConfig({
 
     permissions: [
       'storage',
+      'alarms',
       'unlimitedStorage',
       'input',
       'virtualKeyboardPrivate',
       'inputMethodPrivate'
     ],
     host_permissions: [
-      'https://api.deepseek.com/*'
+      'https://api.deepseek.com/*',
+      'https://shulufa.555044.xyz/*'
     ],
 
     content_security_policy: {
-      extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https://api.deepseek.com;"
+      extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https://api.deepseek.com https://shulufa.555044.xyz;"
     },
 
     input_components: [

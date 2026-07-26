@@ -5,6 +5,7 @@ import { serviceWorkerKeepalive } from "./keepalive";
 import { onMessage } from "@/lib/messaging";
 import { listEnabledInstalledSchemas } from "./schemas";
 import { resolveInstalledSchemaId } from "@/lib/schema-install";
+import { startPersonalSyncBackground } from "@/lib/personal-sync";
 async function buildSchemaMenuItems(activeSchema: string, enabledSchemas?: string[]): Promise<chrome.input.ime.MenuItem[]> {
   const list = await listEnabledInstalledSchemas(activeSchema, enabledSchemas);
   return list.map((entry) => ({
@@ -50,6 +51,10 @@ async function resolveStartupSettings(settings: ImeSettings): Promise<ImeSetting
   await chrome.storage.sync.set({ settings: next });
   return next;
 }
+    void startPersonalSyncBackground().catch((error) => {
+      console.error("personal sync initialization failed", error);
+    });
+
 
 export default defineBackground({
   main() {
