@@ -1026,7 +1026,6 @@ function OptionsPage() {
                 </div>
             </div>}
 
-            <div className={styles.formGroup}>
                 <div className={styles.formBox}>
                     <FormControl className={styles.formControl}>
                         <div className={styles.formLabel}>{$$("rime_engine_logs")}</div>
