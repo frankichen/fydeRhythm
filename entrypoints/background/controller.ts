@@ -48,10 +48,6 @@ export class InputController extends EventEmitter {
     loadMutex: Mutex;
     inputCache: Array<string | null>;
 
-    rimeLogBuffer: string[];
-    rimeLogBufferPos: number;
-    activeSettings: ImeSettings = kDefaultSettings;
-    lastSuccessfulSchema: string | null = null;
 
     constructor() {
         super();
