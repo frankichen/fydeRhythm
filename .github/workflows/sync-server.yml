@@ -1,0 +1,41 @@
+name: Sync Server CI
+
+on:
+  push:
+    branches:
+      - feature/personal-sync-server
+    paths:
+      - 'sync-server/**'
+      - '.github/workflows/sync-server.yml'
+  pull_request:
+    paths:
+      - 'sync-server/**'
+      - '.github/workflows/sync-server.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sync-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: sync-server/go.mod
+      - name: Download dependencies
+        run: go mod download
+      - name: Format check
+        run: test -z "$(gofmt -l .)"
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -race -cover ./...
+      - name: Build
+        run: CGO_ENABLED=0 go build -trimpath -o /tmp/fyderhythm-sync ./cmd/server
+      - name: Docker build
+        run: docker build -t fyderhythm-sync:test .

@@ -1,0 +1,260 @@
+openapi: 3.0.3
+info:
+  title: fydeRhythm Personal Sync API
+  version: 1.0.0
+  description: Single-user personal lexicon and typing-habit synchronization API.
+servers:
+  - url: https://sync.example.com/api/v1
+security:
+  - bearerAuth: []
+paths:
+  /sync/snapshot:
+    get:
+      summary: Get a complete current-state snapshot for a new device
+      responses:
+        '200':
+          description: Current state and synchronization cursor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Snapshot'
+  /sync/pull:
+    get:
+      summary: Pull changes after a cursor
+      parameters:
+        - in: query
+          name: since
+          schema: { type: integer, format: int64, default: 0 }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 500, maximum: 1000 }
+      responses:
+        '200':
+          description: Incremental change page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PullResponse'
+  /sync/push:
+    post:
+      summary: Push idempotent client changes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PushRequest'
+      responses:
+        '200':
+          description: Push result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PushResponse'
+  /lexicon:
+    get:
+      summary: List personal lexicon entries
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+        - in: query
+          name: category
+          schema: { type: string }
+        - in: query
+          name: include_deleted
+          schema: { type: boolean, default: false }
+      responses:
+        '200': { description: Lexicon list }
+    post:
+      summary: Create a personal lexicon entry
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LexiconInput'
+      responses:
+        '201': { description: Created }
+  /lexicon/{id}:
+    put:
+      summary: Update a personal lexicon entry
+      parameters:
+        - $ref: '#/components/parameters/EntryID'
+        - $ref: '#/components/parameters/DeviceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LexiconInput'
+      responses:
+        '201': { description: Updated }
+    delete:
+      summary: Delete an entry by creating a tombstone
+      parameters:
+        - $ref: '#/components/parameters/EntryID'
+        - $ref: '#/components/parameters/DeviceID'
+      responses:
+        '200': { description: Deleted }
+  /lexicon/export:
+    get:
+      summary: Export the personal lexicon
+      parameters:
+        - in: query
+          name: format
+          schema: { type: string, enum: [json, csv], default: json }
+      responses:
+        '200': { description: Exported lexicon }
+  /lexicon/import:
+    post:
+      summary: Import JSON or CSV lexicon data
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+        - in: query
+          name: format
+          schema: { type: string, enum: [json, csv], default: json }
+        - in: query
+          name: mode
+          schema: { type: string, enum: [merge, replace], default: merge }
+      responses:
+        '200': { description: Import result }
+  /settings:
+    get:
+      summary: List synchronized settings
+      responses:
+        '200': { description: Settings list }
+  /settings/{key}:
+    put:
+      summary: Set a synchronized setting
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/DeviceID'
+      responses:
+        '200': { description: Updated }
+    delete:
+      summary: Delete a synchronized setting
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/DeviceID'
+      responses:
+        '200': { description: Deleted }
+  /events:
+    post:
+      summary: Submit candidate, correction, or AI feedback events
+      parameters:
+        - $ref: '#/components/parameters/DeviceID'
+      responses:
+        '200': { description: Event push result }
+  /stats:
+    get:
+      summary: Get aggregate service statistics
+      responses:
+        '200': { description: Statistics }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    DeviceID:
+      in: header
+      name: X-Device-ID
+      required: true
+      schema: { type: string, maxLength: 128 }
+    EntryID:
+      in: path
+      name: id
+      required: true
+      schema: { type: string }
+  schemas:
+    Change:
+      type: object
+      required: [change_id, entity, operation, payload]
+      properties:
+        change_id: { type: string }
+        entity:
+          type: string
+          enum: [lexicon, candidate_usage, correction, ai_feedback, setting]
+        operation:
+          type: string
+          enum: [upsert, delete, increment]
+        client_updated_at: { type: integer, format: int64 }
+        payload: { type: object, additionalProperties: true }
+    PushRequest:
+      type: object
+      required: [device_id, changes]
+      properties:
+        device_id: { type: string }
+        device:
+          type: object
+          properties:
+            name: { type: string }
+            platform: { type: string }
+            app_version: { type: string }
+        changes:
+          type: array
+          maxItems: 500
+          items: { $ref: '#/components/schemas/Change' }
+    PushResponse:
+      type: object
+      properties:
+        cursor: { type: integer, format: int64 }
+        applied: { type: integer }
+        duplicates: { type: integer }
+        conflicts: { type: integer }
+        rejected:
+          type: array
+          items:
+            type: object
+            properties:
+              change_id: { type: string }
+              reason: { type: string }
+    PullResponse:
+      type: object
+      properties:
+        cursor: { type: integer, format: int64 }
+        has_more: { type: boolean }
+        changes:
+          type: array
+          items:
+            type: object
+            properties:
+              seq: { type: integer, format: int64 }
+              change_id: { type: string }
+              entity: { type: string }
+              operation: { type: string }
+              entity_key: { type: string }
+              payload: { type: object, additionalProperties: true }
+              source_device_id: { type: string }
+              created_at: { type: integer, format: int64 }
+    LexiconInput:
+      type: object
+      required: [phrase]
+      properties:
+        id: { type: string }
+        phrase: { type: string }
+        code: { type: string }
+        shortcut: { type: string }
+        weight: { type: integer }
+        category: { type: string }
+        notes: { type: string }
+        updated_at: { type: integer, format: int64 }
+    Snapshot:
+      type: object
+      properties:
+        cursor: { type: integer, format: int64 }
+        generated_at: { type: integer, format: int64 }
+        lexicon: { type: array, items: { type: object } }
+        candidate_usage: { type: array, items: { type: object } }
+        corrections: { type: array, items: { type: object } }
+        ai_feedback: { type: array, items: { type: object } }
+        settings: { type: array, items: { type: object } }
