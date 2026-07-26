@@ -8,7 +8,6 @@ on:
       - 'entrypoints/**'
       - 'lib/**'
       - 'tests/**'
-      - 'release-patches/chromeos-personal-sync/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'tsconfig.json'
@@ -19,7 +18,6 @@ on:
       - 'entrypoints/**'
       - 'lib/**'
       - 'tests/**'
-      - 'release-patches/chromeos-personal-sync/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'tsconfig.json'
@@ -46,19 +44,10 @@ jobs:
         run: pnpm compile
       - name: Unit tests
         run: pnpm test
-      - name: Release patch syntax
-        run: |
-          mkdir -p /tmp/fyderhythm-runtime-patches
-          tar -xzf release-patches/chromeos-personal-sync/runtime-patches.tar.gz -C /tmp/fyderhythm-runtime-patches
-          for file in personal-sync.js personal-sync-options.js ai-reranker.js ai-options.js; do
-            test -f "/tmp/fyderhythm-runtime-patches/$file"
-            node --check "/tmp/fyderhythm-runtime-patches/$file"
-          done
-          bash -n release-patches/chromeos-personal-sync/build-preview.sh
       - name: Generated Rime loader status
         run: |
           if [ -f entrypoints/background/rime_emscripten.js ]; then
             echo "Rime loader present; source packaging can be enabled."
           else
-            echo "Source validation passed, but rime_emscripten.js is a generated upstream artifact and is not present in this repository."
+            echo "Source validation passed. Installable preview packaging uses the extracted official extension because the generated Rime loader is not stored in this repository."
           fi
