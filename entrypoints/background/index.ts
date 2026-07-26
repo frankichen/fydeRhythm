@@ -51,9 +51,6 @@ async function resolveStartupSettings(settings: ImeSettings): Promise<ImeSetting
   await chrome.storage.sync.set({ settings: next });
   return next;
 }
-    void startPersonalSyncBackground().catch((error) => {
-      console.error("personal sync initialization failed", error);
-    });
 
 
 export default defineBackground({
@@ -124,6 +121,7 @@ export default defineBackground({
         await self.controller.loadRime(true);
       });
     }
+    let personalSyncStarted = false;
 
     // Initialize controller
     let rimeLoaded = false;
@@ -147,6 +145,13 @@ export default defineBackground({
       }
       await postLoad();
     });
+      if (!personalSyncStarted) {
+        personalSyncStarted = true;
+        void startPersonalSyncBackground().catch((error) => {
+          personalSyncStarted = false;
+          console.error("personal sync initialization failed", error);
+        });
+      }
 
     // IME activation listener
     chrome.input.ime.onActivate.addListener(async (engineId, _screen) => {
