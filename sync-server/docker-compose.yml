@@ -2,6 +2,7 @@ services:
   sync-server:
     build:
       context: .
+      dockerfile: Dockerfile.runtime
       network: host
     container_name: fyderhythm-sync
     restart: unless-stopped
