@@ -935,7 +935,7 @@ export function getPersonalSyncManager(): PersonalSyncManager {
 }
 
 export async function startPersonalSyncBackground(): Promise<void> {
-    if (typeof chrome === "undefined" || !chrome.storage?.local || !chrome.storage?.onChanged || !chrome.alarms) {
+    if (typeof chrome === "undefined" || !chrome.runtime?.id || !chrome.storage?.local || !chrome.storage?.onChanged || !chrome.alarms) {
         return;
     }
     const manager = getPersonalSyncManager();
