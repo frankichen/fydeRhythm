@@ -29,6 +29,11 @@ jobs:
           cache-dependency-path: sync-server/go.mod
       - name: Resolve dependencies
         run: go mod tidy
+      - name: Upload dependency lock
+        uses: actions/upload-artifact@v4
+        with:
+          name: sync-server-go-sum
+          path: sync-server/go.sum
       - name: Format check
         run: test -z "$(gofmt -l .)"
       - name: Vet
