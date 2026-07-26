@@ -1,0 +1,30 @@
+name: Build DeepSeek IME V2
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/deepseek-ime-v2
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm compile
+      - run: pnpm test
+      - run: pnpm build
+      - name: Package extension
+        run: cd build/chrome-mv3 && zip -r ../../fydeRhythm-deepseek-ime-v2.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fydeRhythm-deepseek-ime-v2
+          path: fydeRhythm-deepseek-ime-v2.zip
