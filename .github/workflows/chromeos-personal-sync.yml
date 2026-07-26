@@ -8,6 +8,7 @@ on:
       - 'entrypoints/**'
       - 'lib/**'
       - 'tests/**'
+      - 'release-patches/chromeos-personal-sync/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'tsconfig.json'
@@ -18,6 +19,7 @@ on:
       - 'entrypoints/**'
       - 'lib/**'
       - 'tests/**'
+      - 'release-patches/chromeos-personal-sync/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'tsconfig.json'
@@ -44,6 +46,13 @@ jobs:
         run: pnpm compile
       - name: Unit tests
         run: pnpm test
+      - name: Release patch syntax
+        run: |
+          node --check release-patches/chromeos-personal-sync/personal-sync.js
+          node --check release-patches/chromeos-personal-sync/personal-sync-options.js
+          node --check release-patches/chromeos-personal-sync/ai-reranker.js
+          node --check release-patches/chromeos-personal-sync/ai-options.js
+          bash -n release-patches/chromeos-personal-sync/build-preview.sh
       - name: Generated Rime loader status
         run: |
           if [ -f entrypoints/background/rime_emscripten.js ]; then
