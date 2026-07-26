@@ -5,6 +5,7 @@ import { parse, stringify } from 'yaml'
 import type { RimeCandidate } from "@/lib/shared-types";
 import EventEmitter from "events";
 import { listEnabledInstalledSchemas } from "./schemas";
+import { loadDeepSeekSettings, rerankCandidateOrder, type DeepSeekSettings } from "@/lib/deepseek";
 
 const kShiftMask = 1 << 0;
 const kControlMask = 1 << 2;
@@ -53,6 +54,11 @@ export class InputController extends EventEmitter {
     rimeLogBufferPos: number;
     activeSettings: ImeSettings = kDefaultSettings;
     lastSuccessfulSchema: string | null = null;
+    surroundingText = "";
+    surroundingCursor = 0;
+    private deepSeekAbort: AbortController | null = null;
+    private deepSeekRequestVersion = 0;
+    private aiRecommendedIndex: number | null = null;
 
     constructor() {
         super();
@@ -336,9 +342,59 @@ export class InputController extends EventEmitter {
     }
 
     async clearContext() {
+        this.clearAiRecommendation();
         this.session?.clearComposition();
         this.context = null;
         this.resetUI();
+    }
+
+    setSurroundingText(text: string, cursor: number) {
+        this.surroundingText = text;
+        this.surroundingCursor = Math.max(0, Math.min(cursor, text.length));
+    }
+
+    private clearAiRecommendation() {
+        this.aiRecommendedIndex = null;
+        this.deepSeekRequestVersion += 1;
+        this.deepSeekAbort?.abort();
+        this.deepSeekAbort = null;
+    }
+
+    private canUseDeepSeek(settings: DeepSeekSettings): boolean {
+        if (!settings.enabled || !settings.apiKey || this.inputViewVisible) return false;
+        const context = this.context as (chrome.input.ime.InputContext & { type?: string; shouldDoLearning?: boolean }) | null;
+        if (!context || context.shouldDoLearning === false) return false;
+        return String(context.type ?? "").toLowerCase() !== "password";
+    }
+
+    private scheduleDeepSeekRecommendation(engineId: string, contextId: number, preedit: string, candidates: Array<{ text: string }>) {
+        const version = ++this.deepSeekRequestVersion;
+        void (async () => {
+            const settings = await loadDeepSeekSettings();
+            if (!this.canUseDeepSeek(settings)) return;
+            await new Promise((resolve) => setTimeout(resolve, settings.debounceMs));
+            if (version !== this.deepSeekRequestVersion || !this.canUseDeepSeek(settings)) return;
+            const abort = new AbortController();
+            this.deepSeekAbort = abort;
+            try {
+                const beforeCursor = this.surroundingText.slice(0, this.surroundingCursor);
+                const order = await rerankCandidateOrder({
+                    context: beforeCursor.slice(-settings.maxContextChars),
+                    preedit,
+                    candidates: candidates.map((candidate) => candidate.text),
+                }, settings, abort.signal);
+                const recommended = order?.[0];
+                if (recommended == null || version !== this.deepSeekRequestVersion || this.engineId !== engineId) return;
+                this.aiRecommendedIndex = recommended;
+                await new Promise<void>((resolve) => {
+                    chrome.input.ime.setCursorPosition({ contextID: contextId, candidateID: recommended }, () => resolve());
+                });
+            } catch (error) {
+                if (!abort.signal.aborted) console.debug("DeepSeek recommendation skipped:", error);
+            } finally {
+                if (this.deepSeekAbort === abort) this.deepSeekAbort = null;
+            }
+        })();
     }
 
     preeditEmpty = false;
@@ -434,6 +490,7 @@ export class InputController extends EventEmitter {
             const rimeContext = await this.session?.getContext();
             if (this.engineId !== engineId) return;
             if (rimeContext) {
+                this.clearAiRecommendation();
                 if (this.context != null) {
                     const c = {
                         contextID: this.context.contextID,
@@ -477,6 +534,7 @@ export class InputController extends EventEmitter {
                                     candidateID: rimeContext.menu.highlightedCandidateIndex
                                 }, (ok) => ok ? res() : rej());
                             }));
+                            this.scheduleDeepSeekRecommendation(engineId, contextId, rimeContext.composition.preedit, rimeContext.menu.candidates);
                         }
                     } else {
                         promises.push(this.setCandidateWindowProperties(engineId, { visible: false }));
@@ -590,6 +648,15 @@ export class InputController extends EventEmitter {
                 return true;
             })();
         }
+        if (!release && this.session && this.aiRecommendedIndex != null && keyData.code === "Space" && !keyData.ctrlKey && !keyData.altKey && !keyData.shiftKey) {
+            const recommended = this.aiRecommendedIndex;
+            this.clearAiRecommendation();
+            return (async () => {
+                await this.selectCandidate(recommended);
+                return true;
+            })();
+        }
+        if (!release && this.aiRecommendedIndex != null) this.clearAiRecommendation();
         if (this.session) {
             const session = this.session;
             let mask = 0;
