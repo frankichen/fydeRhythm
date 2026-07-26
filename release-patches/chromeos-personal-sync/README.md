@@ -1,6 +1,6 @@
 # ChromeOS AI + Personal Sync release patch
 
-This directory contains the standalone JavaScript patch used to turn the official fydeRhythm 3.0.1 extension into the ChromeOS preview build with:
+This directory turns an extracted official fydeRhythm 3.0.1 extension into the ChromeOS preview build with:
 
 - local-first IndexedDB cache;
 - snapshot and incremental server synchronization;
@@ -18,6 +18,8 @@ The synchronization server defaults to:
 ```text
 https://shulufa.555044.xyz
 ```
+
+The four standalone runtime scripts are stored in `runtime-patches.tar.gz`. This keeps the generated official Rime runtime out of Git while still making the preview patch reproducible. CI extracts the archive and checks every JavaScript file before release.
 
 ## Build from an extracted official extension
 

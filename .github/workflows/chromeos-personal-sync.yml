@@ -48,10 +48,12 @@ jobs:
         run: pnpm test
       - name: Release patch syntax
         run: |
-          node --check release-patches/chromeos-personal-sync/personal-sync.js
-          node --check release-patches/chromeos-personal-sync/personal-sync-options.js
-          node --check release-patches/chromeos-personal-sync/ai-reranker.js
-          node --check release-patches/chromeos-personal-sync/ai-options.js
+          mkdir -p /tmp/fyderhythm-runtime-patches
+          tar -xzf release-patches/chromeos-personal-sync/runtime-patches.tar.gz -C /tmp/fyderhythm-runtime-patches
+          for file in personal-sync.js personal-sync-options.js ai-reranker.js ai-options.js; do
+            test -f "/tmp/fyderhythm-runtime-patches/$file"
+            node --check "/tmp/fyderhythm-runtime-patches/$file"
+          done
           bash -n release-patches/chromeos-personal-sync/build-preview.sh
       - name: Generated Rime loader status
         run: |

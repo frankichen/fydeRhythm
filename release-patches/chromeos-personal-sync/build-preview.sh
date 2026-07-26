@@ -9,24 +9,40 @@ fi
 SOURCE_DIR="$(cd "$1" && pwd)"
 OUTPUT_ZIP="$(realpath -m "$2")"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ARCHIVE="$SCRIPT_DIR/runtime-patches.tar.gz"
 
 if [ ! -f "$SOURCE_DIR/manifest.json" ] || [ ! -f "$SOURCE_DIR/background.js" ]; then
   echo "Source directory must contain manifest.json and background.js" >&2
+  exit 1
+fi
+if [ ! -f "$ARCHIVE" ]; then
+  echo "Missing runtime-patches.tar.gz" >&2
   exit 1
 fi
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 ROOT="$TMP_DIR/fydeRhythm-ai-personal-sync-3.0.2.0"
-cp -a "$SOURCE_DIR" "$ROOT"
+PATCH_DIR="$TMP_DIR/runtime-patches"
+mkdir -p "$PATCH_DIR"
+tar -xzf "$ARCHIVE" -C "$PATCH_DIR"
 
+for file in personal-sync.js personal-sync-options.js ai-reranker.js ai-options.js; do
+  if [ ! -f "$PATCH_DIR/$file" ]; then
+    echo "Runtime archive is missing $file" >&2
+    exit 1
+  fi
+  node --check "$PATCH_DIR/$file"
+done
+
+cp -a "$SOURCE_DIR" "$ROOT"
 if [ ! -f "$ROOT/background-original.js" ]; then
   mv "$ROOT/background.js" "$ROOT/background-original.js"
 fi
-cp "$SCRIPT_DIR/ai-reranker.js" "$ROOT/ai-reranker.js"
-cp "$SCRIPT_DIR/ai-options.js" "$ROOT/ai-options.js"
-cp "$SCRIPT_DIR/personal-sync.js" "$ROOT/personal-sync.js"
-cp "$SCRIPT_DIR/personal-sync-options.js" "$ROOT/personal-sync-options.js"
+cp "$PATCH_DIR/personal-sync.js" "$ROOT/personal-sync.js"
+cp "$PATCH_DIR/ai-reranker.js" "$ROOT/ai-reranker.js"
+cp "$PATCH_DIR/personal-sync-options.js" "$ROOT/personal-sync-options.js"
+cp "$PATCH_DIR/ai-options.js" "$ROOT/ai-options.js"
 
 cat > "$ROOT/background.js" <<'BOOTSTRAP'
 /* FydeRhythm AI + Personal Sync bootstrap. */
@@ -78,12 +94,7 @@ FydeRhythm 3.0.2 AI + Personal Sync Preview
 个人词以“★”显示在普通候选末尾，Tab 接受；AI 候选建议用 Alt+Enter 接受。
 INSTRUCTIONS
 
-node --check "$ROOT/personal-sync.js"
-node --check "$ROOT/personal-sync-options.js"
-node --check "$ROOT/ai-reranker.js"
-node --check "$ROOT/ai-options.js"
 python3 -m json.tool "$ROOT/manifest.json" >/dev/null
-
 mkdir -p "$(dirname "$OUTPUT_ZIP")"
 rm -f "$OUTPUT_ZIP"
 (
