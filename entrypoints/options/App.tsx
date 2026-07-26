@@ -33,7 +33,6 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 
 import Animation from "./utils/animation";
 import FileEditorButton from "./fileEditor";
-import RimeLogDisplay from "./rimeLogDisplay";
 import { $$, getFs, type ImeSettings, kDefaultSettings } from "@/lib/utils";
 import { detectSchemaInZip, importSchemaFromZip } from "@/lib/import-schema";
 import { getInstalledSchemaIds } from "@/lib/schema-install";
