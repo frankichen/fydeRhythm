@@ -2,6 +2,7 @@ FROM golang:1.23-alpine AS build
 WORKDIR /src
 ARG GOPROXY=https://proxy.golang.org,direct
 ENV GOPROXY=$GOPROXY
+RUN apk add --no-cache ca-certificates git
 COPY go.mod ./
 RUN go mod download
 COPY . .
