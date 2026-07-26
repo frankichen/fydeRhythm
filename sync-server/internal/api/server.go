@@ -45,11 +45,11 @@ func New(opts Options) (*gin.Engine, error) {
 
 	s := &Server{store: opts.Store, maxBodyBytes: opts.MaxBodyBytes, logger: opts.Logger}
 	r := gin.New()
-	r.Use(gin.Recovery(), requestLogger(opts.Logger), security.CORS(opts.CORSOrigins))
+	r.Use(gin.Recovery(), requestLogger(opts.Logger), security.CORS(opts.CORSOrigins), security.APIHeaders())
 	r.GET("/healthz", s.health)
 
 	api := r.Group("/api/v1")
-	api.Use(security.BearerAuth(opts.APIToken), security.APIHeaders(), s.limitBody())
+	api.Use(security.BearerAuth(opts.APIToken), s.limitBody())
 	{
 		api.POST("/sync/push", s.push)
 		api.GET("/sync/pull", s.pull)

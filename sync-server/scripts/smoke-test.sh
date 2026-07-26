@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-BASE_URL="${BASE_URL:-http://127.0.0.1:18080}"
+BASE_URL="${BASE_URL:-http://127.0.0.1:18081}"
 : "${API_TOKEN:?set API_TOKEN first}"
 DEVICE_ID="${DEVICE_ID:-smoke-test}"
 

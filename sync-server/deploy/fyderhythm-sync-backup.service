@@ -1,0 +1,9 @@
+[Unit]
+Description=Backup fydeRhythm sync SQLite database
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/fyderhythm/sync-server/deploy/backup.sh

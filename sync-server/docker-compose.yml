@@ -11,7 +11,7 @@ services:
       DATABASE_PATH: /data/fyderhythm-sync.db
       LISTEN_ADDR: :8080
     ports:
-      - "127.0.0.1:18080:8080"
+      - "127.0.0.1:18081:8080"
     volumes:
       - ./data:/data
     tmpfs:
@@ -27,3 +27,9 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    networks:
+      - dly_default
+
+networks:
+  dly_default:
+    external: true

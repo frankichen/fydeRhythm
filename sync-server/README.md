@@ -42,7 +42,7 @@ docker compose logs -f
 The service binds only to localhost by default:
 
 ```text
-http://127.0.0.1:18080
+http://127.0.0.1:18081
 ```
 
 Health check:
@@ -59,7 +59,7 @@ curl -H "Authorization: Bearer $API_TOKEN" \
   http://127.0.0.1:18080/api/v1/stats
 ```
 
-For remote Chromebook access, place Caddy or Nginx in front of port `18080` and use HTTPS. Examples are included in `Caddyfile.example` and `nginx.conf.example`.
+For remote Chromebook access, place Caddy or Nginx in front of port `18081` and use HTTPS. Examples are included in `Caddyfile.example` and `nginx.conf.example`.
 
 ## Configuration
 
@@ -203,7 +203,7 @@ List:
 
 ```bash
 curl -H "Authorization: Bearer $API_TOKEN" \
-  'http://127.0.0.1:18080/api/v1/lexicon?q=OpenCode'
+  'http://127.0.0.1:18081/api/v1/lexicon?q=OpenCode'
 ```
 
 Create:
@@ -214,14 +214,14 @@ curl -X POST \
   -H "X-Device-ID: admin" \
   -H "Content-Type: application/json" \
   -d '{"phrase":"OpenCode","shortcut":"opc","weight":100,"category":"tech"}' \
-  http://127.0.0.1:18080/api/v1/lexicon
+  http://127.0.0.1:18081/api/v1/lexicon
 ```
 
 Export:
 
 ```bash
 curl -H "Authorization: Bearer $API_TOKEN" \
-  'http://127.0.0.1:18080/api/v1/lexicon/export?format=csv' \
+  'http://127.0.0.1:18081/api/v1/lexicon/export?format=csv' \
   -o fyderhythm-lexicon.csv
 ```
 
@@ -233,7 +233,7 @@ curl -X POST \
   -H "X-Device-ID: admin" \
   -H "Content-Type: text/csv" \
   --data-binary @fyderhythm-lexicon.csv \
-  'http://127.0.0.1:18080/api/v1/lexicon/import?format=csv&mode=merge'
+  'http://127.0.0.1:18081/api/v1/lexicon/import?format=csv&mode=merge'
 ```
 
 `mode=replace` creates tombstones for the current lexicon before importing the new file. It is intentionally limited to 500 total changes per request.
