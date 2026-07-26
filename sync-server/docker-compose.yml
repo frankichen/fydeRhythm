@@ -1,5 +1,6 @@
 services:
   sync-server:
+    image: fyderhythm-sync:runtime
     build:
       context: .
       dockerfile: Dockerfile.runtime
