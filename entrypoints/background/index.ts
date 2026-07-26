@@ -73,13 +73,6 @@ export default defineBackground({
     }
 
     const postLoad = async () => {
-      chrome.input.ime.onFocus.addListener(async (context) => {
-        // Todo: in incognito tab, context.shouldDoLearning = false,
-        // we should disable rime learning in such context
-        console.log("Got focus event, context = ", context);
-        self.controller.context = context;
-      });
-
       chrome.input.ime.onBlur.addListener((ctxId) => {
         if (self.controller.context?.contextID == ctxId) {
           self.controller.clearContext();
