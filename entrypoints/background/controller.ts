@@ -459,12 +459,6 @@ export class InputController extends EventEmitter {
                                     })),
                                 }, (ok) => ok ? res() : rej());
                             }));
-                            promises.push(new Promise<void>((res, rej) => {
-                                chrome.input.ime.setCursorPosition({
-                                    contextID: contextId,
-                                    candidateID: rimeContext.menu.highlightedCandidateIndex
-                                }, (ok) => ok ? res() : rej());
-                            }));
                         }
                     } else {
                         promises.push(this.setCandidateWindowProperties(engineId, { visible: false }));
