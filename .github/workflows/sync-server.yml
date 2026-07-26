@@ -34,6 +34,8 @@ jobs:
         with:
           name: sync-server-go-sum
           path: sync-server/go.sum
+      - name: Print dependency lock
+        run: cat go.sum
       - name: Format check
         run: test -z "$(gofmt -l .)"
       - name: Vet
