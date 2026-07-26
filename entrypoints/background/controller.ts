@@ -4,7 +4,6 @@ import { type RimeCandidateIterator, RimeEngine, type RimeSession } from "./engi
 import { parse, stringify } from 'yaml'
 import type { RimeCandidate } from "@/lib/shared-types";
 import EventEmitter from "events";
-import { listEnabledInstalledSchemas } from "./schemas";
 
 const kShiftMask = 1 << 0;
 const kControlMask = 1 << 2;
