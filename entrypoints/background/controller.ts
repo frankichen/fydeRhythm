@@ -330,12 +330,6 @@ export class InputController extends EventEmitter {
         this.sendCandidatesToInputView([]);
     }
 
-    async clearContext() {
-        this.session?.clearComposition();
-        this.context = null;
-        this.resetUI();
-    }
-
     preeditEmpty = false;
     setComposition(param: chrome.input.ime.CompositionParameters): Promise<void> {
         return new Promise((res, rej) => {
