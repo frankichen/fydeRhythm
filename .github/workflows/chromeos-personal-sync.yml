@@ -1,0 +1,53 @@
+name: ChromeOS Personal Sync CI
+
+on:
+  push:
+    branches:
+      - feature/chromeos-personal-sync
+    paths:
+      - 'entrypoints/**'
+      - 'lib/**'
+      - 'tests/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'tsconfig.json'
+      - 'wxt.config.ts'
+      - '.github/workflows/chromeos-personal-sync.yml'
+  pull_request:
+    paths:
+      - 'entrypoints/**'
+      - 'lib/**'
+      - 'tests/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'tsconfig.json'
+      - 'wxt.config.ts'
+      - '.github/workflows/chromeos-personal-sync.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: TypeScript
+        run: pnpm compile
+      - name: Unit tests
+        run: pnpm test
+      - name: Generated Rime loader status
+        run: |
+          if [ -f entrypoints/background/rime_emscripten.js ]; then
+            echo "Rime loader present; source packaging can be enabled."
+          else
+            echo "Source validation passed. Installable preview packaging uses the extracted official extension because the generated Rime loader is not stored in this repository."
+          fi

@@ -6,12 +6,14 @@ import type { RimeCandidate } from "@/lib/shared-types";
 import EventEmitter from "events";
 import { listEnabledInstalledSchemas } from "./schemas";
 import { loadDeepSeekSettings, rerankCandidateOrder, type DeepSeekSettings } from "@/lib/deepseek";
+import { findLexiconSuggestions, recordAIFeedback, recordCandidateUsage, type LexiconEntry } from "@/lib/personal-sync";
 
 const kShiftMask = 1 << 0;
 const kControlMask = 1 << 2;
 const kMod1Mask = 1 << 3;
 const kAltMask = kMod1Mask;
 const kReleaseMask = 1 << 30;
+const kPersonalCandidateId = 1000;
 
 // Definitions from librime/include/X11/keysymdef.h
 const kSpecialKeys: Record<string, number> = {
@@ -20,6 +22,7 @@ const kSpecialKeys: Record<string, number> = {
     'PageUp': 0xff55,
     'PageDown': 0xff56,
     'Enter': 0xff0d, // Return
+    'Tab': 0xff09,
     'Backspace': 0xff08,
     'ArrowRight': 0xff53,
     'ArrowLeft': 0xff51,
@@ -59,6 +62,8 @@ export class InputController extends EventEmitter {
     private deepSeekAbort: AbortController | null = null;
     private deepSeekRequestVersion = 0;
     private aiRecommendedIndex: number | null = null;
+    private personalSuggestion: LexiconEntry | null = null;
+    private lastPreedit = "";
 
     constructor() {
         super();
@@ -326,6 +331,8 @@ export class InputController extends EventEmitter {
         if (this.engineId != null) {
             void this.setCandidateWindowProperties(this.engineId, { visible: false });
         }
+        this.personalSuggestion = null;
+        this.lastPreedit = "";
         this.invalidateCandidateCache();
         this.sendCandidatesToInputView([]);
     }
@@ -337,6 +344,8 @@ export class InputController extends EventEmitter {
         this.context = null;
         this.inputCache = [];
         this.preeditEmpty = true;
+        this.personalSuggestion = null;
+        this.lastPreedit = "";
         this.invalidateCandidateCache();
         this.sendCandidatesToInputView([]);
     }
@@ -360,11 +369,14 @@ export class InputController extends EventEmitter {
         this.deepSeekAbort = null;
     }
 
-    private canUseDeepSeek(settings: DeepSeekSettings): boolean {
-        if (!settings.enabled || !settings.apiKey || this.inputViewVisible) return false;
+    private contextAllowsLearning(): boolean {
         const context = this.context as (chrome.input.ime.InputContext & { type?: string; shouldDoLearning?: boolean }) | null;
         if (!context || context.shouldDoLearning === false) return false;
         return String(context.type ?? "").toLowerCase() !== "password";
+    }
+
+    private canUseDeepSeek(settings: DeepSeekSettings): boolean {
+        return settings.enabled && Boolean(settings.apiKey) && !this.inputViewVisible && this.contextAllowsLearning();
     }
 
     private scheduleDeepSeekRecommendation(engineId: string, contextId: number, preedit: string, candidates: Array<{ text: string }>) {
@@ -386,9 +398,6 @@ export class InputController extends EventEmitter {
                 const recommended = order?.[0];
                 if (recommended == null || version !== this.deepSeekRequestVersion || this.engineId !== engineId) return;
                 this.aiRecommendedIndex = recommended;
-                await new Promise<void>((resolve) => {
-                    chrome.input.ime.setCursorPosition({ contextID: contextId, candidateID: recommended }, () => resolve());
-                });
             } catch (error) {
                 if (!abort.signal.aborted) console.debug("DeepSeek recommendation skipped:", error);
             } finally {
@@ -491,6 +500,20 @@ export class InputController extends EventEmitter {
             if (this.engineId !== engineId) return;
             if (rimeContext) {
                 this.clearAiRecommendation();
+                this.lastPreedit = rimeContext.composition.preedit;
+                try {
+                    const [suggestion] = this.contextAllowsLearning()
+                        ? await findLexiconSuggestions(this.lastPreedit, 1)
+                        : [];
+                    this.personalSuggestion = suggestion
+                        && rimeContext.menu.candidates.length < 9
+                        && !rimeContext.menu.candidates.some((candidate) => candidate.text === suggestion.phrase)
+                        ? suggestion
+                        : null;
+                } catch (error) {
+                    this.personalSuggestion = null;
+                    console.debug("Personal lexicon lookup skipped:", error);
+                }
                 if (this.context != null) {
                     const c = {
                         contextID: this.context.contextID,
@@ -505,14 +528,26 @@ export class InputController extends EventEmitter {
                 }
                 if (!this.inputViewVisible) {
                     // Virtual keyboard is not visible, candidiates are displayed in system candidate window
-                    if (rimeContext.menu.candidates.length > 0) {
+                    if (rimeContext.menu.candidates.length > 0 || this.personalSuggestion) {
+                        const rimeCandidates = rimeContext.menu.candidates.map((candidate, index) => ({
+                            candidate: candidate.text,
+                            id: index,
+                            label: rimeContext.selectLabels[index] || (index + 1).toString(),
+                        }));
+                        const displayCandidates = this.personalSuggestion
+                            ? [...rimeCandidates, { candidate: this.personalSuggestion.phrase, id: kPersonalCandidateId, label: "★" }]
+                            : rimeCandidates;
+                        const baseAuxiliaryText = chrome.i18n.getMessage("candidate_page", (rimeContext.menu.pageNumber + 1).toString())
+                            + (rimeContext.menu.isLastPage ? chrome.i18n.getMessage("candidate_page_last") : "");
+                        const auxiliaryText = this.personalSuggestion
+                            ? `${baseAuxiliaryText} · 个人词：${this.personalSuggestion.phrase} · Tab接受`
+                            : baseAuxiliaryText;
                         promises.push(this.setCandidateWindowProperties(engineId, {
                             visible: true,
                             cursorVisible: true,
                             auxiliaryTextVisible: true,
-                            pageSize: rimeContext.menu.pageSize,
-                            auxiliaryText: chrome.i18n.getMessage("candidate_page", (rimeContext.menu.pageNumber + 1).toString())
-                                + (rimeContext.menu.isLastPage ? chrome.i18n.getMessage("candidate_page_last") : ""),
+                            pageSize: Math.max(1, displayCandidates.length),
+                            auxiliaryText,
                             windowPosition: 'composition',
                             vertical: !this.activeSettings.horizontal
                         }));
@@ -521,20 +556,20 @@ export class InputController extends EventEmitter {
                             promises.push(new Promise<void>((res, rej) => {
                                 chrome.input.ime.setCandidates({
                                     contextID: contextId,
-                                    candidates: rimeContext.menu.candidates.map((v, idx) => ({
-                                        candidate: v.text,
-                                        id: idx,
-                                        label: rimeContext.selectLabels[idx] || (idx + 1).toString()
-                                    })),
+                                    candidates: displayCandidates,
                                 }, (ok) => ok ? res() : rej());
                             }));
-                            promises.push(new Promise<void>((res, rej) => {
-                                chrome.input.ime.setCursorPosition({
-                                    contextID: contextId,
-                                    candidateID: rimeContext.menu.highlightedCandidateIndex
-                                }, (ok) => ok ? res() : rej());
-                            }));
-                            this.scheduleDeepSeekRecommendation(engineId, contextId, rimeContext.composition.preedit, rimeContext.menu.candidates);
+                            if (rimeContext.menu.candidates.length > 0) {
+                                promises.push(new Promise<void>((res, rej) => {
+                                    chrome.input.ime.setCursorPosition({
+                                        contextID: contextId,
+                                        candidateID: rimeContext.menu.highlightedCandidateIndex
+                                    }, (ok) => ok ? res() : rej());
+                                }));
+                            }
+                            if (rimeContext.menu.candidates.length > 0) {
+                                this.scheduleDeepSeekRecommendation(engineId, contextId, rimeContext.composition.preedit, rimeContext.menu.candidates);
+                            }
                         }
                     } else {
                         promises.push(this.setCandidateWindowProperties(engineId, { visible: false }));
@@ -598,21 +633,48 @@ export class InputController extends EventEmitter {
         await Promise.all(promises);
     }
 
-    async commitIfAvailable() {
-        if (!this.session || !this.context) {
-            return;
-        }
+    private async commitPersonalSuggestion(): Promise<void> {
+        const suggestion = this.personalSuggestion;
+        const context = this.context;
+        const session = this.session;
+        if (!suggestion || !context || !session) return;
+        const inputCode = this.lastPreedit;
+        this.clearAiRecommendation();
+        this.personalSuggestion = null;
+        await session.clearComposition();
+        await new Promise<void>((resolve, reject) => {
+            chrome.input.ime.commitText({ contextID: context.contextID, text: suggestion.phrase }, (ok) => {
+                if (ok) resolve();
+                else reject(chrome.runtime.lastError ?? new Error("commit personal suggestion failed"));
+            });
+        });
+        this.lastPreedit = "";
+        await this.invalidateCandidateCache();
+        this.sendCandidatesToInputView([]);
+        void recordCandidateUsage(inputCode, suggestion.phrase).catch((error) => {
+            console.debug("Personal usage recording skipped:", error);
+        });
+        await this.refreshContext();
+    }
+
+    async commitIfAvailable(preeditCode: string = this.lastPreedit) {
+        if (!this.session || !this.context) return;
+        const shouldLearn = this.contextAllowsLearning();
         const commit = await this.session.getCommit();
         if (commit) {
             const contextId = this.context.contextID;
             await new Promise<void>((res, rej) => {
-                chrome.input.ime.commitText({
-                    contextID: contextId,
-                    text: commit.text
-                }, (ok) => ok ? res() : rej());
+                chrome.input.ime.commitText({ contextID: contextId, text: commit.text }, (ok) => ok ? res() : rej());
             });
-            this.invalidateCandidateCache();
+            this.lastPreedit = "";
+            this.personalSuggestion = null;
+            await this.invalidateCandidateCache();
             this.sendCandidatesToInputView([]);
+            if (shouldLearn) {
+                void recordCandidateUsage(preeditCode, commit.text).catch((error) => {
+                    console.debug("Candidate usage recording skipped:", error);
+                });
+            }
         }
     }
 
@@ -648,17 +710,26 @@ export class InputController extends EventEmitter {
                 return true;
             })();
         }
-        if (!release && this.session && this.aiRecommendedIndex != null && keyData.code === "Space" && !keyData.ctrlKey && !keyData.altKey && !keyData.shiftKey) {
+        if (this.personalSuggestion && keyData.code === "Tab" && !keyData.ctrlKey && !keyData.altKey && !keyData.shiftKey) {
+            if (release) return true;
+            return (async () => {
+                await this.commitPersonalSuggestion();
+                return true;
+            })();
+        }
+        if (!release && this.session && this.aiRecommendedIndex != null && keyData.code === "Enter" && !keyData.ctrlKey && keyData.altKey && !keyData.shiftKey) {
             const recommended = this.aiRecommendedIndex;
             this.clearAiRecommendation();
             return (async () => {
                 await this.selectCandidate(recommended);
+                void recordAIFeedback("candidate_rerank", true).catch(() => undefined);
                 return true;
             })();
         }
         if (!release && this.aiRecommendedIndex != null) this.clearAiRecommendation();
         if (this.session) {
             const session = this.session;
+            const preeditCode = this.lastPreedit;
             let mask = 0;
             if (keyData.altKey)
                 mask ^= kAltMask;
@@ -700,7 +771,7 @@ export class InputController extends EventEmitter {
                     handled = false;
                 }
                 await this.refreshContext();
-                await this.commitIfAvailable();
+                await this.commitIfAvailable(preeditCode);
                 if (!this.preeditEmpty && (keyData.code == "PageUp" || keyData.code == "PageDown")) {
                     // Chrome will crash if PageUp or PageDown is sent while user is typing in OmniBar and candidate box is shown
                     // So we always return handled = true in this case, to prevent key event being sent to Chrome
@@ -743,9 +814,14 @@ export class InputController extends EventEmitter {
     }
 
     async selectCandidate(index: number, currentPage: boolean = true) {
-        this.invalidateCandidateCache();
+        if (index === kPersonalCandidateId) {
+            await this.commitPersonalSuggestion();
+            return;
+        }
+        const preeditCode = this.lastPreedit;
+        await this.invalidateCandidateCache();
         await this.session?.actionCandidate(index, 'select', currentPage);
-        await this.commitIfAvailable();
+        await this.commitIfAvailable(preeditCode);
         await this.refreshContext();
     }
 

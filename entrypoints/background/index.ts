@@ -5,6 +5,7 @@ import { serviceWorkerKeepalive } from "./keepalive";
 import { onMessage } from "@/lib/messaging";
 import { listEnabledInstalledSchemas } from "./schemas";
 import { resolveInstalledSchemaId } from "@/lib/schema-install";
+import { startPersonalSyncBackground } from "@/lib/personal-sync";
 async function buildSchemaMenuItems(activeSchema: string, enabledSchemas?: string[]): Promise<chrome.input.ime.MenuItem[]> {
   const list = await listEnabledInstalledSchemas(activeSchema, enabledSchemas);
   return list.map((entry) => ({
@@ -50,6 +51,7 @@ async function resolveStartupSettings(settings: ImeSettings): Promise<ImeSetting
   await chrome.storage.sync.set({ settings: next });
   return next;
 }
+
 
 export default defineBackground({
   main() {
@@ -119,6 +121,7 @@ export default defineBackground({
         await self.controller.loadRime(true);
       });
     }
+    let personalSyncStarted = false;
 
     // Initialize controller
     let rimeLoaded = false;
@@ -142,6 +145,13 @@ export default defineBackground({
       }
       await postLoad();
     });
+      if (!personalSyncStarted) {
+        personalSyncStarted = true;
+        void startPersonalSyncBackground().catch((error) => {
+          personalSyncStarted = false;
+          console.error("personal sync initialization failed", error);
+        });
+      }
 
     // IME activation listener
     chrome.input.ime.onActivate.addListener(async (engineId, _screen) => {
