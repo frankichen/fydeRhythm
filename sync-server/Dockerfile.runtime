@@ -1,0 +1,13 @@
+FROM alpine:3.21
+
+RUN apk add --no-cache ca-certificates tzdata && \
+    addgroup -S -g 10001 app && \
+    adduser -S -D -H -u 10001 -G app app
+
+WORKDIR /app
+COPY fyderhythm-sync /usr/local/bin/fyderhythm-sync
+RUN chmod 0755 /usr/local/bin/fyderhythm-sync && mkdir -p /data && chown -R 10001:10001 /data
+USER 10001:10001
+EXPOSE 8080
+VOLUME ["/data"]
+ENTRYPOINT ["/usr/local/bin/fyderhythm-sync"]
