@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <atomic>
+#include <cctype>
 #include <cerrno>
 #include <condition_variable>
 #include <cstring>
@@ -50,6 +51,7 @@ struct SourceSnapshot {
     int deleteOffset = 0;
     unsigned int deleteSize = 0;
     std::string source;
+    bool clipboardFallback = false;
 };
 
 struct AIResult {
@@ -205,6 +207,20 @@ bool isBoundary(uint32_t chr) {
            chr == '?' || chr == '\n' || chr == '\r';
 }
 
+
+bool isCorrectionAction(const std::string &action) {
+    return action == "correct" || action == "correct_clipboard";
+}
+
+bool isWeChat(const InputContext *ic) {
+    std::string program = ic ? ic->program() : std::string();
+    std::transform(program.begin(), program.end(), program.begin(),
+                   [](unsigned char ch) {
+                       return static_cast<char>(std::tolower(ch));
+                   });
+    return program.find("wechat") != std::string::npos ||
+           program.find("weixin") != std::string::npos;
+}
 bool sourceForCorrection(InputContext *ic, SourceSnapshot &snapshot) {
     const auto &surrounding = ic->surroundingText();
     if (!surrounding.isValid()) {
@@ -289,6 +305,9 @@ bool sourceForPrediction(InputContext *ic, SourceSnapshot &snapshot) {
 }
 
 bool unchanged(InputContext *ic, const SourceSnapshot &snapshot) {
+    if (snapshot.clipboardFallback) {
+        return true;
+    }
     const auto &surrounding = ic->surroundingText();
     return surrounding.isValid() && surrounding.text() == snapshot.allText &&
            surrounding.cursor() == snapshot.cursor &&
@@ -384,9 +403,12 @@ private:
         }
 
         std::string action;
-        if (event.key().check(Key("Alt+R")) ||
-            event.key().check(Key("Control+Alt+R"))) {
+        bool forceClipboard = false;
+        if (event.key().check(Key("Alt+R"))) {
             action = "correct";
+        } else if (event.key().check(Key("Control+Alt+R"))) {
+            action = "correct";
+            forceClipboard = true;
         } else if (event.key().check(Key("Alt+Return")) ||
                    event.key().check(Key("Alt+KP_Enter")) ||
                    event.key().check(Key("Control+Alt+Return")) ||
@@ -407,21 +429,44 @@ private:
             showMessage(ic, "请先完成当前输入，再触发 AI");
             return;
         }
-        if (!ic->capabilityFlags().test(CapabilityFlag::SurroundingText)) {
-            showMessage(ic, "当前应用不支持读取光标附近文本");
-            return;
+        SourceSnapshot snapshot;
+        bool ok = false;
+        const bool hasSurrounding =
+            ic->capabilityFlags().test(CapabilityFlag::SurroundingText);
+        const bool useClipboard =
+            action == "correct" && (forceClipboard || isWeChat(ic));
+
+        if (!useClipboard && hasSurrounding) {
+            ok = action == "correct" ? sourceForCorrection(ic, snapshot)
+                                       : sourceForPrediction(ic, snapshot);
         }
 
-        SourceSnapshot snapshot;
-        const bool ok = action == "correct" ? sourceForCorrection(ic, snapshot)
-                                              : sourceForPrediction(ic, snapshot);
+        if (!ok && action == "correct" && useClipboard) {
+            snapshot.clipboardFallback = true;
+            snapshot.source.clear();
+            ic->forwardKey(Key("Control+C"), false);
+            ic->forwardKey(Key("Control+C"), true);
+            action = "correct_clipboard";
+            ok = true;
+        }
+
         if (!ok) {
-            showMessage(ic, action == "correct" ? "请选择文字，或把光标放在句末"
-                                                  : "光标前没有可用于续写的上下文");
+            if (!hasSurrounding) {
+                showMessage(ic, action == "correct"
+                                    ? "当前应用不支持直接读取文本；请选中文字后按 Ctrl+Alt+R"
+                                    : "当前应用不支持读取续写上下文");
+            } else {
+                showMessage(ic, action == "correct"
+                                    ? "请选择文字，或把光标放在句末"
+                                    : "光标前没有可用于续写的上下文");
+            }
             return;
         }
-        showMessage(ic, action == "correct" ? "DeepSeek 正在纠错…"
-                                              : "DeepSeek 正在续写…");
+        showMessage(ic, isCorrectionAction(action)
+                            ? (action == "correct_clipboard"
+                                   ? "微信兼容模式：正在读取选中文本并纠错…"
+                                   : "DeepSeek 正在纠错…")
+                            : "DeepSeek 正在续写…");
         {
             std::lock_guard<std::mutex> lock(queueMutex_);
             queue_.push_back(Task{ic->watch(), action, std::move(snapshot)});
@@ -483,7 +528,7 @@ private:
         candidates->setLabels({"1"});
         candidates->append<AIWord>(this, iter->second.output);
         candidates->setGlobalCursorIndex(0);
-        ic->inputPanel().setAuxUp(Text(iter->second.action == "correct"
+        ic->inputPanel().setAuxUp(Text(isCorrectionAction(iter->second.action)
                                            ? "DeepSeek 纠错候选（回车/空格/1 接受，Esc 取消）"
                                            : "DeepSeek 续写候选（回车/空格/1 接受，Esc 取消）"));
         ic->inputPanel().setCandidateList(std::move(candidates));
