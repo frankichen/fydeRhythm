@@ -131,6 +131,9 @@ func ensureSchemaPatch(cfg config.Config) error {
 		"    enable_sentence: false",
 		"    enable_completion: false",
 		"    initial_quality: 0.2",
+		"  \"key_binder/bindings/+\":",
+		"    - { when: has_menu, accept: minus, send: Page_Up }",
+		"    - { when: has_menu, accept: equal, send: Page_Down }",
 		markerEnd,
 	}, "\n")
 

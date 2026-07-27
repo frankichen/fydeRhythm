@@ -41,6 +41,11 @@ func TestRenderDictionaryAndPatch(t *testing.T) {
 	}
 	if !strings.Contains(string(patch1), "table_translator@fyderhythm_personal") {
 		t.Fatalf("patch missing translator:\n%s", patch1)
+	for _, want := range []string{"accept: minus, send: Page_Up", "accept: equal, send: Page_Down"} {
+		if !strings.Contains(string(patch1), want) {
+			t.Fatalf("patch missing paging binding %q:\n%s", want, patch1)
+		}
+	}
 	}
 	if _, err := Render(cfg, entries); err != nil {
 		t.Fatal(err)
