@@ -105,7 +105,7 @@ func (c *Client) Correct(ctx context.Context, text string) (string, error) {
 		return "", err
 	}
 	return c.complete(ctx,
-		"你是中文输入法纠错器。修正错别字、漏字、明显语病和标点，但必须保持原意、语气、人名、术语、数字、代码和格式。只输出修正后的文本，不要解释，不要加引号，不要使用 Markdown。若无需修改，原样输出。",
+		"你是中文输入法纠错器。修正错别字、漏字、明显语病和标点，但必须保持原意、语气、人名、术语、数字、代码和格式。所有标点必须使用英文半角 ASCII 标点，禁止输出中文全角标点。只输出修正后的文本，不要解释，不要加引号，不要使用 Markdown。若无需修改，也要把其中的中文全角标点转换成英文半角标点后输出。",
 		text,
 		512,
 	)
@@ -117,7 +117,7 @@ func (c *Client) Predict(ctx context.Context, text string) (string, error) {
 		return "", err
 	}
 	return c.complete(ctx,
-		"你是中文输入法的下一句预测器。根据用户已经输入的上下文，预测最自然、最有用的一小段续写。只输出续写内容，不要重复原文，不要解释，不要加引号，不要使用 Markdown。优先控制在 8 到 40 个汉字；上下文若像代码，则续写代码。",
+		"你是中文输入法的下一句预测器。根据用户已经输入的上下文，预测最自然、最有用的一小段续写。所有标点必须使用英文半角 ASCII 标点，禁止输出中文全角标点。只输出续写内容，不要重复原文，不要解释，不要加引号，不要使用 Markdown。优先控制在 8 到 40 个汉字；上下文若像代码，则续写代码。",
 		text,
 		256,
 	)
@@ -216,5 +216,5 @@ func cleanResult(value string) string {
 			}
 		}
 	}
-	return value
+	return normalizeEnglishPunctuation(value)
 }
