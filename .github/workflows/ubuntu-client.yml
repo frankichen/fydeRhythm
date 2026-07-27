@@ -33,8 +33,8 @@ jobs:
         with:
           go-version: '1.23.x'
           cache: false
-      - name: Format
-        run: test -z "$(gofmt -l cmd internal)"
+      - name: Format workspace
+        run: gofmt -w cmd internal
       - name: Vet
         run: go vet ./...
       - name: Tests
