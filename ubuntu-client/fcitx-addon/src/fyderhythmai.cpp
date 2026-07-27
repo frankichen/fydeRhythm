@@ -313,7 +313,7 @@ public:
     explicit FydeRhythmAI(Instance *instance) : instance_(instance) {
         dispatcher_.attach(&instance_->eventLoop());
         eventHandlers_.emplace_back(instance_->watchEvent(
-            EventType::InputContextKeyEvent, EventWatcherPhase::PostInputMethod,
+            EventType::InputContextKeyEvent, EventWatcherPhase::PreInputMethod,
             [this](Event &event) { handleKey(static_cast<KeyEvent &>(event)); }));
         eventHandlers_.emplace_back(instance_->watchEvent(
             EventType::InputContextFocusOut, EventWatcherPhase::Default,
@@ -384,10 +384,13 @@ private:
         }
 
         std::string action;
-        if (event.key().check(Key("Alt+R"))) {
+        if (event.key().check(Key("Alt+R")) ||
+            event.key().check(Key("Control+Alt+R"))) {
             action = "correct";
         } else if (event.key().check(Key("Alt+Return")) ||
-                   event.key().check(Key("Alt+KP_Enter"))) {
+                   event.key().check(Key("Alt+KP_Enter")) ||
+                   event.key().check(Key("Control+Alt+Return")) ||
+                   event.key().check(Key("Control+Alt+KP_Enter"))) {
             action = "predict";
         } else {
             return;
