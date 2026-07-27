@@ -1,0 +1,17 @@
+[Unit]
+Description=fydeRhythm personal lexicon sync for Fcitx5/Rime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/fyderhythm-sync sync
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.config/fyderhythm %h/.local/share/fcitx5/rime
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,43 @@
+name: Ubuntu Client CI
+
+on:
+  push:
+    branches:
+      - feature/ubuntu-fcitx5-sync-client
+    paths:
+      - 'ubuntu-client/**'
+      - '.github/workflows/ubuntu-client.yml'
+  pull_request:
+    paths:
+      - 'ubuntu-client/**'
+      - '.github/workflows/ubuntu-client.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: ubuntu-client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: ubuntu-client/go.sum
+      - name: Format
+        run: test -z "$(gofmt -l cmd internal)"
+      - name: Vet
+        run: go vet ./...
+      - name: Tests
+        run: go test -race -cover ./...
+      - name: Build
+        run: make build
+      - name: Debian package
+        run: make package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fyderhythm-sync-ubuntu-amd64
+          path: ubuntu-client/dist/*.deb
