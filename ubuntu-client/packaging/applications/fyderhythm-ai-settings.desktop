@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=fydeRhythm AI 设置
+Comment=配置 DeepSeek Key、模型和代理
+Exec=fyderhythm-ai-settings
+Icon=preferences-desktop-keyboard
+Terminal=false
+Categories=Settings;Utility;
+Keywords=DeepSeek;AI;Fcitx;Rime;输入法;
+StartupNotify=true

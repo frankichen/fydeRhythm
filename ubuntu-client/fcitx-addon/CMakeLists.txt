@@ -1,0 +1,15 @@
+cmake_minimum_required(VERSION 3.16)
+project(fyderhythm-fcitx-ai VERSION 0.2.0 LANGUAGES CXX)
+
+include(GNUInstallDirs)
+find_package(ECM REQUIRED 1.0.0)
+set(CMAKE_MODULE_PATH ${ECM_MODULE_PATH} ${CMAKE_MODULE_PATH})
+find_package(Fcitx5Core REQUIRED)
+find_package(Threads REQUIRED)
+include("${FCITX_INSTALL_CMAKECONFIG_DIR}/Fcitx5Utils/Fcitx5CompilerSettings.cmake")
+
+add_fcitx5_addon(fyderhythmai src/fyderhythmai.cpp)
+target_compile_features(fyderhythmai PRIVATE cxx_std_17)
+target_link_libraries(fyderhythmai Fcitx5::Core Threads::Threads)
+install(TARGETS fyderhythmai DESTINATION "${CMAKE_INSTALL_LIBDIR}/fcitx5")
+install(FILES fyderhythmai.conf DESTINATION "${FCITX_INSTALL_PKGDATADIR}/addon")
