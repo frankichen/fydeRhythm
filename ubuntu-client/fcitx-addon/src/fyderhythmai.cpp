@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdlib>
 #include <atomic>
 #include <cerrno>
 #include <condition_variable>
@@ -14,6 +15,7 @@
 #include <vector>
 
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/un.h>
 #include <unistd.h>
 
@@ -23,6 +25,7 @@
 #include <fcitx-utils/trackableobject.h>
 #include <fcitx-utils/utf8.h>
 #include <fcitx/addonfactory.h>
+#include <fcitx/addonmanager.h>
 #include <fcitx/addoninstance.h>
 #include <fcitx/candidatelist.h>
 #include <fcitx/event.h>
@@ -370,8 +373,8 @@ private:
                 event.filterAndAccept();
                 return;
             }
-            const int digit = event.key().digitSelection();
-            if (digit == 0 || event.key().check(FcitxKey_Return) ||
+            if (event.key().check(FcitxKey_1) ||
+                event.key().check(FcitxKey_Return) ||
                 event.key().check(FcitxKey_KP_Enter) ||
                 event.key().check(FcitxKey_space)) {
                 apply(ic);
@@ -516,7 +519,6 @@ private:
 
 AIWord::AIWord(FydeRhythmAI *owner, const std::string &output)
     : CandidateWord(Text(output)), owner_(owner) {
-    setComment(Text("DeepSeek"));
 }
 
 void AIWord::select(InputContext *inputContext) const { owner_->apply(inputContext); }
@@ -528,4 +530,8 @@ public:
     }
 };
 
-FCITX_ADDON_FACTORY_V2(fyderhythmai, FydeRhythmAIFactory)
+extern "C" __attribute__((visibility("default"))) AddonFactory *
+fcitx_addon_factory_instance() {
+    static FydeRhythmAIFactory factory;
+    return &factory;
+}
