@@ -11,7 +11,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=%h/.config/fyderhythm %h/.local/share/fcitx5/rime
+ReadWritePaths=-%h/.config/fyderhythm -%h/.local/share/fcitx5/rime
 
 [Install]
 WantedBy=default.target
