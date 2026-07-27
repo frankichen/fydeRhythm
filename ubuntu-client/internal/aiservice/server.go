@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/frankichen/fydeRhythm/ubuntu-client/internal/clipboard"
 	"github.com/frankichen/fydeRhythm/ubuntu-client/internal/config"
 	"github.com/frankichen/fydeRhythm/ubuntu-client/internal/deepseek"
 )
@@ -119,6 +120,14 @@ func (s *Server) handle(parent context.Context, conn net.Conn) {
 	case "correct":
 		result, err = client.Correct(ctx, text)
 	case "predict":
+	case "correct_clipboard":
+		// Give the target application a short moment to finish the forwarded
+		// Ctrl+C before reading the desktop clipboard.
+		time.Sleep(250 * time.Millisecond)
+		text, err = clipboard.ReadText(ctx)
+		if err == nil {
+			result, err = client.Correct(ctx, text)
+		}
 		result, err = client.Predict(ctx, text)
 	default:
 		err = fmt.Errorf("不支持的 AI 操作 %q", action)
