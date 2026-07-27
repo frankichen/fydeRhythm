@@ -31,7 +31,7 @@ Section: utils
 Priority: optional
 Architecture: $ARCH
 Maintainer: frankichen
-Depends: fcitx5, fcitx5-rime, librime-bin, zenity
+Depends: fcitx5, fcitx5-rime, librime-bin, zenity, wl-clipboard, xclip
 Description: fydeRhythm sync and DeepSeek AI for Fcitx5/Rime
  Local-first personal lexicon synchronization plus an opt-in DeepSeek
  correction and next-sentence addon for Ubuntu Fcitx5/Rime.

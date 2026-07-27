@@ -10,7 +10,7 @@ sudo apt-get update
 sudo apt-get install -y \
   fcitx5 fcitx5-rime fcitx5-config-qt fcitx5-frontend-gtk3 \
   fcitx5-frontend-gtk4 fcitx5-frontend-qt5 im-config librime-bin \
-  git rsync zenity cmake g++ extra-cmake-modules libfcitx5core-dev
+  git rsync zenity wl-clipboard xclip cmake g++ extra-cmake-modules libfcitx5core-dev
 
 mkdir -p "$BIN_DIR" "$RIME_DIR" "$SYSTEMD_DIR"
 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$BIN_DIR/fyderhythm-sync" "$ROOT_DIR/cmd/fyderhythm-sync"
