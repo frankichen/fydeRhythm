@@ -134,6 +134,9 @@ func ensureSchemaPatch(cfg config.Config) error {
 		"  \"key_binder/bindings/+\":",
 		"    - { when: has_menu, accept: minus, send: Page_Up }",
 		"    - { when: has_menu, accept: equal, send: Page_Down }",
+		"  \"ascii_composer/switch_key/Shift_L\": noop",
+		"  \"ascii_composer/switch_key/Shift_R\": commit_text",
+		"  \"switches/@2/reset\": 1",
 		markerEnd,
 	}, "\n")
 

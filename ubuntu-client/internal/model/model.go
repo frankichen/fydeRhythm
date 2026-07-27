@@ -2,7 +2,7 @@ package model
 
 import "encoding/json"
 
-const Version = "0.2.3"
+const Version = "0.2.4"
 
 type LexiconEntry struct {
 	ID              string `json:"id"`
