@@ -442,8 +442,13 @@ private:
         }
 
         if (!ok && action == "correct" && useClipboard) {
+            auto previousClipboard = callDaemon("clipboard_read", "");
+            if (!previousClipboard.first) {
+                showMessage(ic, previousClipboard.second);
+                return;
+            }
             snapshot.clipboardFallback = true;
-            snapshot.source.clear();
+            snapshot.source = std::move(previousClipboard.second);
             ic->forwardKey(Key("Control+C"), false);
             ic->forwardKey(Key("Control+C"), true);
             action = "correct_clipboard";
