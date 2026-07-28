@@ -104,11 +104,16 @@ func (c *Client) Correct(ctx context.Context, text string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return c.complete(ctx,
-		"你是中文输入法纠错器。修正错别字、漏字、明显语病和标点，但必须保持原意、语气、人名、术语、数字、代码和格式。所有标点必须使用英文半角 ASCII 标点，禁止输出中文全角标点。只输出修正后的文本，不要解释，不要加引号，不要使用 Markdown。若无需修改，也要把其中的中文全角标点转换成英文半角标点后输出。",
-		text,
+	source := normalizeEnglishPunctuation(text)
+	result, err := c.complete(ctx,
+		"你是输入法错字校正器,不是改写、润色或语病修复工具。只检查两类高度确定的错字:第一类是五笔输入误码造成的错误汉字,包括形近、同码或近码误选;第二类是拼音输入造成的同音字或近音字误选。严禁修改语序、措辞、风格、语气、语法、标点、空格、数字、字母、人名、术语和代码;严禁增加、删除或移动任何字符。输出必须与原文字符数完全一致,只允许把极少数确定错误的汉字替换为正确汉字。不确定就保持原字。未发现确定错字时必须原样输出。所有标点保持英文半角 ASCII。只输出处理后的原文,不要解释,不要加引号,不要使用 Markdown。",
+		source,
 		512,
 	)
+	if err != nil {
+		return "", err
+	}
+	return enforceTypoOnly(source, result), nil
 }
 
 func (c *Client) Predict(ctx context.Context, text string) (string, error) {
