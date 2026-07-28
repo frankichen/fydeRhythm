@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/ubuntu-fcitx5-sync-client
+      - feature/ubuntu-deepseek-ai
     paths:
       - 'ubuntu-client/**'
       - '.github/workflows/ubuntu-client.yml'
@@ -17,25 +18,39 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     defaults:
       run:
         working-directory: ubuntu-client
     steps:
       - uses: actions/checkout@v4
+      - name: Install Fcitx5 build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake g++ extra-cmake-modules libfcitx5core-dev dpkg-dev
       - uses: actions/setup-go@v5
         with:
           go-version: '1.23.x'
           cache: false
+      - name: Format workspace
+        run: gofmt -w cmd internal
       - name: Vet
         run: go vet ./...
       - name: Tests
         run: go test -race -cover ./...
-      - name: Build
+      - name: Build Go client
         run: make build
+      - name: Build Fcitx5 addon
+        run: make build-addon
       - name: Debian package
         run: make package
+      - name: Inspect package
+        run: |
+          dpkg-deb --info dist/*.deb
+          dpkg-deb --contents dist/*.deb
+          test "$(dpkg-deb -f dist/*.deb Version)" = "$(dist/fyderhythm-sync version)"
       - uses: actions/upload-artifact@v4
         with:
-          name: fyderhythm-sync-ubuntu-amd64
+          name: fyderhythm-deepseek-ubuntu-amd64
           path: ubuntu-client/dist/*.deb

@@ -16,17 +16,31 @@ const (
 	ModeFull         = "full"
 	ModeDownloadOnly = "download-only"
 	ModeManual       = "manual"
+
+	DefaultDeepSeekBaseURL = "https://api.deepseek.com"
+	DefaultDeepSeekModel   = "deepseek-v4-flash"
 )
 
+type AIConfig struct {
+	Enabled        bool   `json:"enabled"`
+	BaseURL        string `json:"base_url"`
+	APIKey         string `json:"api_key"`
+	Model          string `json:"model"`
+	ProxyURL       string `json:"proxy_url,omitempty"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+	MaxInputChars  int    `json:"max_input_chars"`
+}
+
 type Config struct {
-	ServerURL          string `json:"server_url"`
-	APIToken           string `json:"api_token"`
-	DeviceID           string `json:"device_id"`
-	DeviceName         string `json:"device_name"`
-	Mode               string `json:"mode"`
-	SchemaID           string `json:"schema_id"`
-	RimeUserDir        string `json:"rime_user_dir"`
-	SyncIntervalMinute int    `json:"sync_interval_minutes"`
+	ServerURL          string   `json:"server_url"`
+	APIToken           string   `json:"api_token"`
+	DeviceID           string   `json:"device_id"`
+	DeviceName         string   `json:"device_name"`
+	Mode               string   `json:"mode"`
+	SchemaID           string   `json:"schema_id"`
+	RimeUserDir        string   `json:"rime_user_dir"`
+	SyncIntervalMinute int      `json:"sync_interval_minutes"`
+	AI                 AIConfig `json:"ai"`
 }
 
 func Default() (Config, error) {
@@ -42,7 +56,7 @@ func Default() (Config, error) {
 	if strings.TrimSpace(hostname) == "" {
 		hostname = "Ubuntu"
 	}
-	return Config{
+	cfg := Config{
 		ServerURL:          "https://shulufa.555044.xyz",
 		DeviceID:           deviceID,
 		DeviceName:         hostname,
@@ -50,7 +64,27 @@ func Default() (Config, error) {
 		SchemaID:           "wubi86_jidian_pinyin_smart",
 		RimeUserDir:        filepath.Join(home, ".local", "share", "fcitx5", "rime"),
 		SyncIntervalMinute: 5,
-	}, nil
+	}
+	applyDefaults(&cfg)
+	return cfg, nil
+}
+
+func applyDefaults(cfg *Config) {
+	if cfg.SyncIntervalMinute <= 0 {
+		cfg.SyncIntervalMinute = 5
+	}
+	if strings.TrimSpace(cfg.AI.BaseURL) == "" {
+		cfg.AI.BaseURL = DefaultDeepSeekBaseURL
+	}
+	if strings.TrimSpace(cfg.AI.Model) == "" {
+		cfg.AI.Model = DefaultDeepSeekModel
+	}
+	if cfg.AI.TimeoutSeconds <= 0 {
+		cfg.AI.TimeoutSeconds = 45
+	}
+	if cfg.AI.MaxInputChars <= 0 {
+		cfg.AI.MaxInputChars = 2000
+	}
 }
 
 func Paths() (configPath, statePath, lockPath string, err error) {
@@ -60,6 +94,13 @@ func Paths() (configPath, statePath, lockPath string, err error) {
 	}
 	dir := filepath.Join(base, "fyderhythm")
 	return filepath.Join(dir, "config.json"), filepath.Join(dir, "state.json"), filepath.Join(dir, "sync.lock"), nil
+}
+
+func RuntimeSocketPath() string {
+	if runtimeDir := strings.TrimSpace(os.Getenv("XDG_RUNTIME_DIR")); runtimeDir != "" {
+		return filepath.Join(runtimeDir, "fyderhythm-ai.sock")
+	}
+	return filepath.Join(os.TempDir(), fmt.Sprintf("fyderhythm-ai-%d.sock", os.Getuid()))
 }
 
 func Load() (Config, error) {
@@ -78,6 +119,7 @@ func Load() (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("解析配置: %w", err)
 	}
+	applyDefaults(&cfg)
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
@@ -85,6 +127,7 @@ func Load() (Config, error) {
 }
 
 func Save(cfg Config) error {
+	applyDefaults(&cfg)
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
@@ -138,7 +181,48 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.RimeUserDir) == "" {
 		return errors.New("rime_user_dir 不能为空")
 	}
+	return c.AI.Validate()
+}
+
+func (c AIConfig) Validate() error {
+	if !c.Enabled && strings.TrimSpace(c.APIKey) == "" {
+		return nil
+	}
+	if len(strings.TrimSpace(c.APIKey)) < 16 {
+		return errors.New("DeepSeek API Key 长度不正确")
+	}
+	u, err := url.Parse(strings.TrimSpace(c.BaseURL))
+	local := u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1"
+	if err != nil || u.Host == "" || (u.Scheme != "https" && !(local && u.Scheme == "http")) {
+		return errors.New("DeepSeek base_url 必须是有效的 HTTPS 地址；仅本机测试允许 HTTP")
+	}
+	if strings.TrimSpace(c.Model) == "" {
+		return errors.New("DeepSeek model 不能为空")
+	}
+	if c.TimeoutSeconds < 5 || c.TimeoutSeconds > 180 {
+		return errors.New("DeepSeek timeout_seconds 必须在 5 到 180 之间")
+	}
+	if c.MaxInputChars < 100 || c.MaxInputChars > 20000 {
+		return errors.New("DeepSeek max_input_chars 必须在 100 到 20000 之间")
+	}
+	if strings.TrimSpace(c.ProxyURL) != "" {
+		proxy, err := url.Parse(strings.TrimSpace(c.ProxyURL))
+		if err != nil || proxy.Host == "" || (proxy.Scheme != "http" && proxy.Scheme != "https") {
+			return errors.New("DeepSeek proxy_url 仅支持 http:// 或 https:// 代理")
+		}
+	}
 	return nil
+}
+
+func MaskSecret(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= 8 {
+		if value == "" {
+			return "未设置"
+		}
+		return "********"
+	}
+	return value[:4] + "…" + value[len(value)-4:]
 }
 
 func randomID(prefix string) (string, error) {

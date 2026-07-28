@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+if ! command -v zenity >/dev/null 2>&1; then
+  echo "未安装 zenity，请执行：sudo apt install zenity" >&2
+  exit 1
+fi
+
+KEY="$(zenity --password \
+  --title='fydeRhythm AI 设置' \
+  --text='请输入 DeepSeek API Key。Key 仅保存在本机 ~/.config/fyderhythm/config.json，不会上传到词库同步服务器。')" || exit 0
+
+MODEL="$(zenity --list --radiolist \
+  --title='选择 DeepSeek 模型' \
+  --text='输入法推荐低延迟模型 deepseek-v4-flash。' \
+  --column='选择' --column='模型' --column='说明' \
+  TRUE 'deepseek-v4-flash' '低延迟，适合输入法' \
+  FALSE 'deepseek-v4-pro' '质量更高，响应可能更慢' \
+  --print-column=2)" || exit 0
+
+PROXY="$(zenity --entry \
+  --title='DeepSeek 网络代理' \
+  --text='公司网络需要代理时填写，例如 http://127.0.0.1:10808；不需要则留空。' \
+  --entry-text='http://127.0.0.1:10808')" || exit 0
+
+ARGS=(ai-config --key-stdin --enable --model "$MODEL" --non-interactive)
+if [[ -n "${PROXY// }" ]]; then
+  ARGS+=(--proxy "$PROXY")
+else
+  ARGS+=(--clear-proxy)
+fi
+
+OUTPUT="$(printf '%s\n' "$KEY" | fyderhythm-sync "${ARGS[@]}" 2>&1)" || {
+  zenity --error --title='fydeRhythm AI 设置失败' --text="$OUTPUT"
+  exit 1
+}
+unset KEY
+
+systemctl --user daemon-reload
+systemctl --user enable --now fyderhythm-ai.service
+if TEST_OUTPUT="$(fyderhythm-sync ai-test 2>&1)"; then
+  fcitx5-remote -r >/dev/null 2>&1 || true
+  zenity --info --title='fydeRhythm AI 已启用' \
+    --text="$TEST_OUTPUT
+
+快捷键：
+Alt+R：纠错选中文字；未选择时纠错光标前一句
+Alt+Enter：根据光标前上下文续写
+
+AI 候选出现后，按回车、空格或 1 接受，Esc 取消。"
+else
+  zenity --error --title='DeepSeek 测试失败' \
+    --text="$TEST_OUTPUT
+
+配置已经保存。请检查 Key、代理和网络后再次打开“fydeRhythm AI 设置”。"
+  exit 1
+fi
