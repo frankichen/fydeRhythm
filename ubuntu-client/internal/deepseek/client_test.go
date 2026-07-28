@@ -43,7 +43,7 @@ func TestCorrectUsesConfiguredModelAndAuthorization(t *testing.T) {
 		if request.Model != "deepseek-v4-flash" || request.Thinking.Type != "disabled" {
 			t.Fatalf("unexpected request: %+v", request)
 		}
-		fmt.Fprint(w, `{"choices":[{"message":{"content":"修正后的文字"}}]}`)
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"这个目录不存在"}}]}`)
 	}))
 	defer server.Close()
 
@@ -58,11 +58,11 @@ func TestCorrectUsesConfiguredModelAndAuthorization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := client.Correct(context.Background(), "错务文字")
+	got, err := client.Correct(context.Background(), "这个目录不存再")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "修正后的文字" {
+	if got != "这个目录不存在" {
 		t.Fatalf("result = %q", got)
 	}
 }
