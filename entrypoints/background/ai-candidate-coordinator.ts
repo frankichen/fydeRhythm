@@ -31,8 +31,8 @@ export class AiCandidateCoordinator {
   async initialize(): Promise<void> {
     this.settings = await loadAiSettings();
     this.installSetCandidatesInterceptor();
-    chrome.storage.local.onChanged.addListener((changes) => {
-      if (!changes[kAiSettingsKey]) return;
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== "local" || !changes[kAiSettingsKey]) return;
       this.settings = normalizeAiSettings(changes[kAiSettingsKey].newValue as Partial<AiSettings> | undefined);
       this.cancelPending();
       this.clearOrder();
@@ -88,8 +88,11 @@ export class AiCandidateCoordinator {
     if (this.originalSetCandidates) return;
     this.originalSetCandidates = chrome.input.ime.setCandidates.bind(chrome.input.ime);
     const coordinator = this;
+    const inputIme = chrome.input.ime as typeof chrome.input.ime & {
+      setCandidates: typeof chrome.input.ime.setCandidates;
+    };
 
-    chrome.input.ime.setCandidates = function (parameters, callback) {
+    inputIme.setCandidates = function (parameters, callback) {
       const original = coordinator.originalSetCandidates;
       if (!original) return;
       original(parameters, callback);
