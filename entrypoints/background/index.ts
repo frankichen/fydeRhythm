@@ -5,6 +5,8 @@ import { serviceWorkerKeepalive } from "./keepalive";
 import { onMessage } from "@/lib/messaging";
 import { listEnabledInstalledSchemas } from "./schemas";
 import { resolveInstalledSchemaId } from "@/lib/schema-install";
+import { AiCandidateCoordinator } from "./ai-candidate-coordinator";
+
 async function buildSchemaMenuItems(activeSchema: string, enabledSchemas?: string[]): Promise<chrome.input.ime.MenuItem[]> {
   const list = await listEnabledInstalledSchemas(activeSchema, enabledSchemas);
   return list.map((entry) => ({
@@ -38,12 +40,8 @@ async function resolveStartupSettings(settings: ImeSettings): Promise<ImeSetting
     settings.schema,
     settings.enabledSchemas,
   );
-  if (!schema) {
-    return null;
-  }
-  if (schema === settings.schema) {
-    return settings;
-  }
+  if (!schema) return null;
+  if (schema === settings.schema) return settings;
 
   const next = { ...settings, schema };
   console.warn(`Configured schema "${settings.schema}" is not installed in the v3 layout; using "${schema}" instead.`);
@@ -53,6 +51,11 @@ async function resolveStartupSettings(settings: ImeSettings): Promise<ImeSetting
 
 export default defineBackground({
   main() {
+    const aiCoordinator = new AiCandidateCoordinator();
+    const aiReady = aiCoordinator.initialize().catch((error: unknown) => {
+      console.error("Failed to initialize AI candidate coordinator:", error);
+    });
+
     async function fallbackDefaultSettings() {
       await chrome.storage.sync.set({ settings: kDefaultSettings });
       await chrome.storage.local.set({
@@ -74,31 +77,47 @@ export default defineBackground({
 
     const postLoad = async () => {
       chrome.input.ime.onFocus.addListener(async (context) => {
-        // Todo: in incognito tab, context.shouldDoLearning = false,
-        // we should disable rime learning in such context
         console.log("Got focus event, context = ", context);
         self.controller.context = context;
+        aiCoordinator.setInputContext(context);
       });
 
       chrome.input.ime.onBlur.addListener((ctxId) => {
         if (self.controller.context?.contextID == ctxId) {
+          aiCoordinator.setInputContext(null);
           self.controller.clearContext();
         }
       });
 
-      chrome.input.ime.onKeyEvent.addListener((engineID: string, keyData: chrome.input.ime.KeyboardEvent, requestId: string) => {
+      chrome.input.ime.onSurroundingTextChanged.addListener((_engineId, surroundingInfo) => {
+        aiCoordinator.setSurroundingText(surroundingInfo);
+      });
+
+      chrome.input.ime.onKeyEvent.addListener((_engineID: string, keyData: chrome.input.ime.KeyboardEvent, requestId: string) => {
         console.log("Processing key: ", JSON.stringify(keyData));
+
+        const mappedCandidate = aiCoordinator.getMappedCandidate(keyData);
+        if (mappedCandidate !== null) {
+          void self.controller.selectCandidate(mappedCandidate).then(() => {
+            chrome.input.ime.keyEventHandled(requestId, true);
+          }).catch((error: unknown) => {
+            console.error("Failed to select AI-ranked candidate:", error);
+            chrome.input.ime.keyEventHandled(requestId, false);
+          });
+          return undefined;
+        }
+
         const result = self.controller.feedKey(keyData);
         if (result === false || result === true) {
           return result;
-        } else {
-          result.then((handled: boolean) => chrome.input.ime.keyEventHandled(requestId, handled));
-          return undefined;
         }
+        result.then((handled: boolean) => chrome.input.ime.keyEventHandled(requestId, handled));
+        return undefined;
       });
 
-      chrome.input.ime.onCandidateClicked.addListener((engineId, candidateId, button) => {
+      chrome.input.ime.onCandidateClicked.addListener((_engineId, candidateId, button) => {
         console.log(candidateId, button);
+        aiCoordinator.clearOrder();
         if (button == 'left') {
           self.controller.selectCandidate(candidateId);
           self.controller.lastRightClickItem = -1;
@@ -107,7 +126,7 @@ export default defineBackground({
         }
       });
 
-      chrome.input.ime.onMenuItemActivated.addListener(async (engineID, menuId) => {
+      chrome.input.ime.onMenuItemActivated.addListener(async (_engineID, menuId) => {
         const current = self.controller.activeSettings?.schema;
         if (current === menuId) return;
         const obj = await chrome.storage.sync.get(["settings"]) as { settings?: ImeSettings };
@@ -115,15 +134,13 @@ export default defineBackground({
         await chrome.storage.sync.set({ settings: next });
         await self.controller.loadRime(true);
       });
-    }
+    };
 
-    // Initialize controller
     let rimeLoaded = false;
     self.controller = new InputController();
     self.controller.addListener("schemaSwitched", () => { refreshImeMenuItems(); });
 
     chrome.storage.sync.get(["settings"]).then(async (obj) => {
-      // Only load engine if settings exists
       if (obj.settings) {
         const settings = await resolveStartupSettings(obj.settings as ImeSettings);
         if (settings) {
@@ -134,13 +151,11 @@ export default defineBackground({
     }).catch((e) => {
       console.error('load settings error', e);
     }).finally(async () => {
-      if (!rimeLoaded) {
-        await fallbackDefaultSettings();
-      }
+      if (!rimeLoaded) await fallbackDefaultSettings();
+      await aiReady;
       await postLoad();
     });
 
-    // IME activation listener
     chrome.input.ime.onActivate.addListener(async (engineId, _screen) => {
       self.controller.engineId = engineId;
       serviceWorkerKeepalive();
@@ -148,10 +163,10 @@ export default defineBackground({
     });
 
     chrome.input.ime.onDeactivated.addListener((engineId) => {
+      aiCoordinator.setInputContext(null);
       self.controller.deactivate(engineId);
     });
 
-    // Rebuild menu when schemas are installed/removed or active setting changes elsewhere
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area === "local" && (changes.schemaList || changes.selfDefinedSchema)) {
         refreshImeMenuItems();
@@ -160,17 +175,14 @@ export default defineBackground({
       }
     });
 
-    // Message handlers using @webext-core/messaging
     onMessage('GetEngineStatus', async () => {
       const loaded = self.controller.engine != null;
       const loading = self.controller.engineLoading;
       const schemaList: never[] = [];
       let currentSchema = "";
-
       if (loaded && !loading) {
         currentSchema = (await self.controller.session?.getCurrentSchema()) ?? "";
       }
-
       return { loading, loaded, schemaList, currentSchema };
     });
 
@@ -184,86 +196,71 @@ export default defineBackground({
       }
     });
 
-    onMessage('GetRimeLogs', () => {
-      return { logs: self.controller.getLogs() };
-    });
+    onMessage('GetRimeLogs', () => ({ logs: self.controller.getLogs() }));
+    onMessage('ReloadRime', async () => { await self.controller.loadRime(true); });
+    onMessage('RefreshImeMenu', async () => { await refreshImeMenuItems(); });
+    onMessage('SimulateKey', () => ({ handled: false }));
 
-    onMessage('ReloadRime', async () => {
-      await self.controller.loadRime(true);
-    });
-
-    onMessage('RefreshImeMenu', async () => {
-      await refreshImeMenuItems();
-    });
-
-    onMessage('SimulateKey', () => {
-      return { handled: false };
-    });
-
-    // Port listeners for inputview
     chrome.runtime.onConnect.addListener((port) => {
-      if (port.name == "inputviewMessages") {
-        console.log("InputView Port Connecting");
+      if (port.name != "inputviewMessages") return;
+      console.log("InputView Port Connecting");
 
-        let inputViewDisconnected = false;
-        const postToPort = (msg: object) => {
-          if (inputViewDisconnected) return;
-          try {
-            port.postMessage(msg);
-          } catch {
-            inputViewDisconnected = true;
-          }
-        };
-
-        void self.controller?.session?.getOption("ascii_mode").then((asciiMode: boolean | undefined) => {
-          postToPort({ name: "init", msg: { asciiMode: asciiMode ?? false } });
-        }).catch(() => {
-          postToPort({ name: "init", msg: { asciiMode: false } });
-        });
-
-        port.onMessage.addListener((msg) => {
-          console.log("Message from inputview:", msg);
-          if (!msg || typeof msg !== "object") return;
-          if (msg.name == "visibility_change") {
-            self.controller.handleInputViewVisibilityChanged(msg.visibility);
-          } else if (msg.name == "toggle_language_state") {
-            self.controller.setAsciiMode(!msg.msg);
-          } else if (msg.name == "select_candidate") {
-            self.controller.selectCandidate(msg.candidate.ix, false);
-          } else if (msg.name == "load_more_candidate") {
-            self.controller.fetchMoreCandidates(msg.more_candidate_count);
-          }
-        });
-
-        const onToggleLanguageState = function (asciiMode: boolean) {
-          postToPort({ name: 'front_toggle_language_state', msg: !asciiMode });
-        }
-
-        const onCandidatesBack = function (candidates: Array<{ candidate: string, ix: number }>) {
-          postToPort({ name: "candidates_back", msg: { source: "source", candidates } });
-        }
-
-        const onSchemaSwitched = function () {
-          void self.controller?.session?.getOption("ascii_mode").then((asciiMode: boolean | undefined) => {
-            postToPort({ name: "schema_switched", msg: { asciiMode: asciiMode ?? false } });
-          }).catch(() => {
-            postToPort({ name: "schema_switched", msg: { asciiMode: false } });
-          });
-        }
-
-        self.controller.addListener("toggleLanguageState", onToggleLanguageState);
-        self.controller.addListener("candidatesBack", onCandidatesBack);
-        self.controller.addListener("schemaSwitched", onSchemaSwitched);
-
-        port.onDisconnect.addListener(() => {
-          console.log("InputView disconnected");
+      let inputViewDisconnected = false;
+      const postToPort = (msg: object) => {
+        if (inputViewDisconnected) return;
+        try {
+          port.postMessage(msg);
+        } catch {
           inputViewDisconnected = true;
-          self.controller.removeListener("toggleLanguageState", onToggleLanguageState);
-          self.controller.removeListener("candidatesBack", onCandidatesBack);
-          self.controller.removeListener("schemaSwitched", onSchemaSwitched);
-          self.controller.handleInputViewVisibilityChanged(false);
+        }
+      };
+
+      void self.controller?.session?.getOption("ascii_mode").then((asciiMode: boolean | undefined) => {
+        postToPort({ name: "init", msg: { asciiMode: asciiMode ?? false } });
+      }).catch(() => {
+        postToPort({ name: "init", msg: { asciiMode: false } });
+      });
+
+      port.onMessage.addListener((msg) => {
+        console.log("Message from inputview:", msg);
+        if (!msg || typeof msg !== "object") return;
+        if (msg.name == "visibility_change") {
+          self.controller.handleInputViewVisibilityChanged(msg.visibility);
+        } else if (msg.name == "toggle_language_state") {
+          self.controller.setAsciiMode(!msg.msg);
+        } else if (msg.name == "select_candidate") {
+          self.controller.selectCandidate(msg.candidate.ix, false);
+        } else if (msg.name == "load_more_candidate") {
+          self.controller.fetchMoreCandidates(msg.more_candidate_count);
+        }
+      });
+
+      const onToggleLanguageState = (asciiMode: boolean) => {
+        postToPort({ name: 'front_toggle_language_state', msg: !asciiMode });
+      };
+      const onCandidatesBack = (candidates: Array<{ candidate: string, ix: number }>) => {
+        postToPort({ name: "candidates_back", msg: { source: "source", candidates } });
+      };
+      const onSchemaSwitched = () => {
+        void self.controller?.session?.getOption("ascii_mode").then((asciiMode: boolean | undefined) => {
+          postToPort({ name: "schema_switched", msg: { asciiMode: asciiMode ?? false } });
+        }).catch(() => {
+          postToPort({ name: "schema_switched", msg: { asciiMode: false } });
         });
-      }
+      };
+
+      self.controller.addListener("toggleLanguageState", onToggleLanguageState);
+      self.controller.addListener("candidatesBack", onCandidatesBack);
+      self.controller.addListener("schemaSwitched", onSchemaSwitched);
+
+      port.onDisconnect.addListener(() => {
+        console.log("InputView disconnected");
+        inputViewDisconnected = true;
+        self.controller.removeListener("toggleLanguageState", onToggleLanguageState);
+        self.controller.removeListener("candidatesBack", onCandidatesBack);
+        self.controller.removeListener("schemaSwitched", onSchemaSwitched);
+        self.controller.handleInputViewVisibilityChanged(false);
+      });
     });
   }
 });

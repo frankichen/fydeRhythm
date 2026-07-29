@@ -17,7 +17,6 @@ export default defineConfig({
     version: '3.0.1',
     author: 'fydeos',
 
-    // Icons
     icons: {
       16: '/icon-16.png',
       32: '/icon-32.png',
@@ -26,7 +25,6 @@ export default defineConfig({
       128: '/icon-128.png'
     },
 
-    // Action with default icon (for toolbar button)
     action: {
       default_icon: {
         16: '/icon-16.png',
@@ -37,7 +35,6 @@ export default defineConfig({
       }
     },
 
-    // Permissions
     permissions: [
       'storage',
       'unlimitedStorage',
@@ -45,13 +42,14 @@ export default defineConfig({
       'virtualKeyboardPrivate',
       'inputMethodPrivate'
     ],
+    host_permissions: [
+      'https://api.deepseek.com/*'
+    ],
 
-    // Content Security Policy for WASM
     content_security_policy: {
-      extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+      extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https://api.deepseek.com;"
     },
 
-    // IME-specific configuration (Chrome private API)
     input_components: [
       {
         name: '__MSG_input_method_name__',
@@ -63,20 +61,15 @@ export default defineConfig({
       }
     ],
 
-    // Update URL
     update_url: 'https://store.fydeos.com/update/nfglebjgiflmmcdddkbcbgmdkomlfcpa/updates.xml'
   } as any,
 
-  // Vite configuration
   vite: () => ({
     build: {
-      // Don't inline WASM files
       assetsInlineLimit: 0,
-      // Increase chunk size warning limit (our options page is legitimately large)
-      chunkSizeWarningLimit: 1500, // 1500 kB instead of default 500 kB
+      chunkSizeWarningLimit: 1500,
       rollupOptions: {
         output: {
-          // Keep WASM file names predictable
           assetFileNames: (assetInfo) => {
             if (assetInfo.name?.endsWith('.wasm')) {
               return '[name].[ext]';
@@ -84,15 +77,14 @@ export default defineConfig({
             return 'assets/[name]-[hash].[ext]';
           }
         },
-        // Suppress eval warning from lottie-web (third-party library, safe in our context)
         onwarn(warning, warn) {
           if (
             warning.code === 'EVAL' &&
             warning.id?.includes('lottie-web')
           ) {
-            return; // Suppress lottie-web eval warning
+            return;
           }
-          warn(warning); // Show other warnings
+          warn(warning);
         }
       }
     }
