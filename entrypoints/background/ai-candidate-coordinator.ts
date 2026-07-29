@@ -24,12 +24,14 @@ export class AiCandidateCoordinator {
   private abortController: AbortController | null = null;
   private requestSerial = 0;
   private originalSetCandidates: typeof chrome.input.ime.setCandidates | null = null;
+  private originalSetComposition: typeof chrome.input.ime.setComposition | null = null;
   private internalUpdate = false;
   private activeOrder: number[] | null = null;
   private activeContextId: number | null = null;
 
   async initialize(): Promise<void> {
     this.settings = await loadAiSettings();
+    this.installSetCompositionInterceptor();
     this.installSetCandidatesInterceptor();
     chrome.storage.onChanged.addListener((changes, areaName) => {
       if (areaName !== "local" || !changes[kAiSettingsKey]) return;
@@ -82,6 +84,34 @@ export class AiCandidateCoordinator {
     const type = String(this.context.type ?? "null").toLowerCase();
     if (["password", "number", "tel", "url", "email", "null"].includes(type)) return true;
     return this.context.shouldDoLearning === false;
+  }
+
+  private installSetCompositionInterceptor(): void {
+    if (this.originalSetComposition) return;
+    this.originalSetComposition = chrome.input.ime.setComposition.bind(chrome.input.ime);
+    const coordinator = this;
+
+    const intercepted = ((
+      parameters: chrome.input.ime.CompositionParameters,
+      callback?: (success: boolean) => void,
+    ): Promise<boolean> | void => {
+      const original = coordinator.originalSetComposition;
+      if (!original) return callback ? undefined : Promise.resolve(false);
+
+      if (parameters.contextID === coordinator.context?.contextID) {
+        coordinator.setPreedit(parameters.text ?? "");
+      }
+
+      if (callback) {
+        original(parameters, callback);
+        return;
+      }
+      return original(parameters);
+    }) as typeof chrome.input.ime.setComposition;
+
+    (chrome.input.ime as typeof chrome.input.ime & {
+      setComposition: typeof chrome.input.ime.setComposition;
+    }).setComposition = intercepted;
   }
 
   private installSetCandidatesInterceptor(): void {
