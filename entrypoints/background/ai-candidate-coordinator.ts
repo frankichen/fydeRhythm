@@ -88,18 +88,28 @@ export class AiCandidateCoordinator {
     if (this.originalSetCandidates) return;
     this.originalSetCandidates = chrome.input.ime.setCandidates.bind(chrome.input.ime);
     const coordinator = this;
-    const inputIme = chrome.input.ime as typeof chrome.input.ime & {
-      setCandidates: typeof chrome.input.ime.setCandidates;
-    };
 
-    inputIme.setCandidates = function (parameters, callback) {
+    const intercepted = ((
+      parameters: chrome.input.ime.CandidatesParameters,
+      callback?: (success: boolean) => void,
+    ): Promise<boolean> | void => {
       const original = coordinator.originalSetCandidates;
-      if (!original) return;
-      original(parameters, callback);
+      if (!original) return callback ? undefined : Promise.resolve(false);
+
       if (!coordinator.internalUpdate) {
         coordinator.schedule(parameters.contextID, parameters.candidates as CandidateItem[]);
       }
-    };
+
+      if (callback) {
+        original(parameters, callback);
+        return;
+      }
+      return original(parameters);
+    }) as typeof chrome.input.ime.setCandidates;
+
+    (chrome.input.ime as typeof chrome.input.ime & {
+      setCandidates: typeof chrome.input.ime.setCandidates;
+    }).setCandidates = intercepted;
   }
 
   private schedule(contextId: number, candidates: CandidateItem[]): void {
