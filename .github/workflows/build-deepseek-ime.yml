@@ -26,7 +26,7 @@ jobs:
             ${{ runner.temp }}/emsdk
             ${{ runner.temp }}/librime-wasm/wasm-builder/dl-cache
             ${{ runner.temp }}/librime-wasm/wasm-builder/dep/build
-          key: librime-wasm-emsdk-3.1.45-v1
+          key: librime-wasm-emsdk-3.1.45-v2
 
       - name: Install Emscripten SDK
         shell: bash
@@ -49,6 +49,16 @@ jobs:
           fi
           source "${RUNNER_TEMP}/emsdk/emsdk_env.sh"
           cd "${RUNNER_TEMP}/librime-wasm"
+
+          # FydeOS's dependency script still points at the retired JFrog Boost URL.
+          # Preload the official Boost archive and verify its published SHA256.
+          mkdir -p wasm-builder/dl-cache
+          rm -f wasm-builder/dl-cache/boost-1.77.0.tar.gz
+          curl --fail --location --retry 3 \
+            https://archives.boost.io/release/1.77.0/source/boost_1_77_0.tar.gz \
+            --output wasm-builder/dl-cache/boost-1.77.0.tar.gz
+          echo "5347464af5b14ac54bb945dc68f1dd7c56f0dad7262816b956138fc53bcc0131  wasm-builder/dl-cache/boost-1.77.0.tar.gz" | sha256sum --check
+
           ./wasm-builder/download-plugins
           ./wasm-builder/dep/build-all
           ./wasm-builder/build-wasm
