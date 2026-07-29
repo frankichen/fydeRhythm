@@ -52,7 +52,7 @@ async function resolveStartupSettings(settings: ImeSettings): Promise<ImeSetting
 export default defineBackground({
   main() {
     const aiCoordinator = new AiCandidateCoordinator();
-    const aiReady = aiCoordinator.initialize().catch((error) => {
+    const aiReady = aiCoordinator.initialize().catch((error: unknown) => {
       console.error("Failed to initialize AI candidate coordinator:", error);
     });
 
@@ -100,7 +100,7 @@ export default defineBackground({
         if (mappedCandidate !== null) {
           void self.controller.selectCandidate(mappedCandidate).then(() => {
             chrome.input.ime.keyEventHandled(requestId, true);
-          }).catch((error) => {
+          }).catch((error: unknown) => {
             console.error("Failed to select AI-ranked candidate:", error);
             chrome.input.ime.keyEventHandled(requestId, false);
           });
