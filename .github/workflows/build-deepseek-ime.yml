@@ -25,7 +25,7 @@ jobs:
           path: |
             ${{ runner.temp }}/emsdk
             ${{ runner.temp }}/librime-wasm/wasm-builder/dl-cache
-          key: librime-wasm-emsdk-3.1.36-v4
+          key: librime-wasm-emsdk-3.1.36-v5
 
       - name: Install Emscripten SDK
         shell: bash
@@ -51,6 +51,40 @@ jobs:
           # and avoid today's glog master, which is no longer compatible with this tree.
           sed -i '/build-glog/d' wasm-builder/dep/build-all
           sed -i 's/-DENABLE_LOGGING=on/-DENABLE_LOGGING=off/' wasm-builder/build-wasm
+
+          # This pinned librime revision declares a glog-only helper outside its feature
+          # guard. Wrap it so ENABLE_LOGGING=off is a valid build configuration.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/rime/setup.cc")
+          text = path.read_text()
+          old = '''void PrefixAttacher(std::ostream &s, const google::LogMessageInfo &l, void* data) {
+            s << l.severity[0]
+              << std::setw(2) << l.time.hour() << ':'
+              << std::setw(2) << l.time.min()  << ':'
+              << std::setw(2) << l.time.sec() << "."
+              << std::setw(3) << l.time.usec() / 1000
+              << ' '
+              << l.filename << ':' << l.line_number << "]";
+          }
+          '''
+          new = '''#ifdef RIME_ENABLE_LOGGING
+          void PrefixAttacher(std::ostream &s, const google::LogMessageInfo &l, void* data) {
+            s << l.severity[0]
+              << std::setw(2) << l.time.hour() << ':'
+              << std::setw(2) << l.time.min()  << ':'
+              << std::setw(2) << l.time.sec() << "."
+              << std::setw(3) << l.time.usec() / 1000
+              << ' '
+              << l.filename << ':' << l.line_number << "]";
+          }
+          #endif  // RIME_ENABLE_LOGGING
+          '''
+          if old not in text:
+              raise SystemExit("setup.cc logging helper pattern not found")
+          path.write_text(text.replace(old, new))
+          PY
 
           # Native CPU flags add -march=native, which is invalid for the wasm32 target.
           sed -i 's/ --enable-native-code / /' wasm-builder/dep/build-marisa
