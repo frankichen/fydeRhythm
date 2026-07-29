@@ -25,7 +25,7 @@ jobs:
           path: |
             ${{ runner.temp }}/emsdk
             ${{ runner.temp }}/librime-wasm/wasm-builder/dl-cache
-          key: librime-wasm-emsdk-3.1.36-v5
+          key: librime-wasm-emsdk-3.1.36-v6
 
       - name: Install Emscripten SDK
         shell: bash
@@ -85,6 +85,11 @@ jobs:
               raise SystemExit("setup.cc logging helper pattern not found")
           path.write_text(text.replace(old, new))
           PY
+
+          # The browser wrapper uses LOG() directly. With logging disabled, use
+          # librime's built-in no-op macros instead of the unavailable glog header.
+          sed -i 's|#include <glog/logging.h>|#include <rime/no_logging.h>|' tools/rime_emscripten.cpp
+          grep -q '#include <rime/no_logging.h>' tools/rime_emscripten.cpp
 
           # Native CPU flags add -march=native, which is invalid for the wasm32 target.
           sed -i 's/ --enable-native-code / /' wasm-builder/dep/build-marisa
