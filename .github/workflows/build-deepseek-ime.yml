@@ -25,8 +25,7 @@ jobs:
           path: |
             ${{ runner.temp }}/emsdk
             ${{ runner.temp }}/librime-wasm/wasm-builder/dl-cache
-            ${{ runner.temp }}/librime-wasm/wasm-builder/dep/build
-          key: librime-wasm-emsdk-3.1.45-v3
+          key: librime-wasm-emsdk-3.1.36-v4
 
       - name: Install Emscripten SDK
         shell: bash
@@ -35,32 +34,35 @@ jobs:
             git clone --depth 1 https://github.com/emscripten-core/emsdk.git "${RUNNER_TEMP}/emsdk"
           fi
           cd "${RUNNER_TEMP}/emsdk"
-          ./emsdk install 3.1.45
-          ./emsdk activate 3.1.45
+          ./emsdk install 3.1.36
+          ./emsdk activate 3.1.36
 
       - name: Build librime WebAssembly engine
         shell: bash
         run: |
-          if [ ! -d "${RUNNER_TEMP}/librime-wasm/.git" ]; then
-            git clone --depth 1 https://github.com/FydeOS/librime-wasm.git "${RUNNER_TEMP}/librime-wasm"
-          else
-            git -C "${RUNNER_TEMP}/librime-wasm" reset --hard
-            git -C "${RUNNER_TEMP}/librime-wasm" pull --ff-only
-          fi
+          rm -rf "${RUNNER_TEMP}/librime-wasm"
+          git clone https://github.com/FydeOS/librime-wasm.git "${RUNNER_TEMP}/librime-wasm"
+          git -C "${RUNNER_TEMP}/librime-wasm" checkout cf09ae07bb3797d96ffe253415dad9b89e730a5d
+
           source "${RUNNER_TEMP}/emsdk/emsdk_env.sh"
           cd "${RUNNER_TEMP}/librime-wasm"
 
-          # FydeOS's dependency script still points at the retired JFrog Boost URL.
-          # Preload the official Boost archive and verify its published SHA256.
+          # The upstream 2023 CI was built with emsdk 3.1.36. Keep the toolchain pinned
+          # and avoid today's glog master, which is no longer compatible with this tree.
+          sed -i '/build-glog/d' wasm-builder/dep/build-all
+          sed -i 's/-DENABLE_LOGGING=on/-DENABLE_LOGGING=off/' wasm-builder/build-wasm
+
+          # Native CPU flags add -march=native, which is invalid for the wasm32 target.
+          sed -i 's/ --enable-native-code / /' wasm-builder/dep/build-marisa
+
+          # The original Boost JFrog URL is retired. Preload the official archive and
+          # verify the checksum published for Boost 1.77.0.
           mkdir -p wasm-builder/dl-cache
           rm -f wasm-builder/dl-cache/boost-1.77.0.tar.gz
           curl --fail --location --retry 3 \
             https://archives.boost.io/release/1.77.0/source/boost_1_77_0.tar.gz \
             --output wasm-builder/dl-cache/boost-1.77.0.tar.gz
           echo "5347464af5b14ac54bb945dc68f1dd7c56f0dad7262816b956138fc53bcc0131  wasm-builder/dl-cache/boost-1.77.0.tar.gz" | sha256sum --check
-
-          # Native CPU flags add -march=native, which Clang rejects for the wasm32 target.
-          sed -i 's/ --enable-native-code / /' wasm-builder/dep/build-marisa
 
           ./wasm-builder/download-plugins
           ./wasm-builder/dep/build-all
